@@ -59,18 +59,19 @@ def forward_with_loss(nets, batch_data, is_train=True):
     # forward
     out, pool1, pool2, pool3 = net_encoder(input_img)
     pred_featuremap_1 = net_decoder_1(out, pool1, pool2, pool3)
-    pred_featuremap_2 = net_decoder_2(out, pool1, pool2, pool3)
-
-    err_seg = crit1(pred_featuremap_1, label_seg)
-    err_recon = crit2(pred_featuremap_2, input_img)
-
-    err = err_seg + args.beta * err_recon
-
-    return pred_featuremap_1, pred_featuremap_2, err
+    if is_train:
+        pred_featuremap_2 = net_decoder_2(out, pool1, pool2, pool3)
+    err = crit1(pred_featuremap_1, label_seg)   
+    if is_train:
+        err += args.beta * crit2(pred_featuremap_2, input_img)
+        return pred_featuremap_1, pred_featuremap_2, err
+    else:
+        print(err)
+        return pred_featuremap_1, err
 
 
 def visualize(batch_data, pred, args):
-    colors = loadmat('../colormap.mat')['colors']
+    colors = loadmat('colormap.mat')['colors']
     (imgs, segs, infos) = batch_data
     for j in range(len(infos)):
         # get/recover image
@@ -123,9 +124,6 @@ def train(nets, loader, optimizers, history, epoch, args):
         # Backward
         err.backward()
 
-        for net in nets:
-            nn.utils.clip_grad_norm(net.parameters(), 1)
-
         for optimizer in optimizers:
             optimizer.step()
 
@@ -143,11 +141,11 @@ def train(nets, loader, optimizers, history, epoch, args):
                   .format(epoch, i, args.epoch_iters,
                           batch_time.average(), data_time.average(),
                           args.lr_encoder, args.lr_decoder,
-                          acc * 100, err.data[0]))
+                          acc * 100, err.data.item()))
 
             fractional_epoch = epoch - 1 + 1. * i / args.epoch_iters
             history['train']['epoch'].append(fractional_epoch)
-            history['train']['err'].append(err.data[0])
+            history['train']['err'].append(err.data.item())
             history['train']['acc'].append(acc)
 
 
@@ -170,9 +168,9 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
     for i, batch_data in enumerate(loader):
         # forward pass
         torch.cuda.empty_cache()
-        pred, _, err = forward_with_loss(nets, batch_data, is_train=False)
-        loss_meter.update(err.data[0])
-        print('[Eval] iter {}, loss: {}'.format(i, err.data[0]))
+        pred, err = forward_with_loss(nets, batch_data, is_train=False)
+        loss_meter.update(err.data.item())
+        print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
 
         # calculate accuracy
         acc, pix = accuracy(batch_data, pred)
@@ -203,8 +201,8 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
         # forward pass
         torch.cuda.empty_cache()
         pred, _, err = forward_with_loss(nets, batch_data, is_train=False)
-        loss_meter_2.update(err.data[0])
-        print('[Eval] iter {}, loss: {}'.format(i, err.data[0]))
+        loss_meter_2.update(err.data.item())
+        print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
 
         # calculate accuracy
         acc, pix = accuracy(batch_data, pred)
@@ -377,9 +375,9 @@ def main(args):
                                           weights=args.weights_recon)
 
     if args.weighted_class:
-        crit1 = nn.NLLLoss2d(ignore_index=-1, weight=args.class_weight)
+        crit1 = nn.NLLLoss(ignore_index=-1, weight=args.class_weight)
     else:
-        crit1 = nn.NLLLoss2d(ignore_index=-1)
+        crit1 = nn.NLLLoss(ignore_index=-1)
     crit2 = nn.MSELoss()
 
     # Dataset and Loader
@@ -431,7 +429,7 @@ def main(args):
                for split in ('train', 'val', 'val_2')}
 
     # optional initial eval
-    # evaluate(nets, loader_val, loader_val_2, history, 0, args)
+    evaluate(nets, loader_val, loader_val_2, history, 0, args)
     for epoch in range(1, args.num_epoch + 1):
         train(nets, loader_train, optimizers, history, epoch, args)
 
@@ -474,7 +472,7 @@ if __name__ == '__main__':
     # optimization related arguments
     parser.add_argument('--num_gpus', default=3, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=4, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=3, type=int,
                         help='input batch size')
     parser.add_argument('--batch_size_per_gpu_eval', default=1, type=int,
                         help='eval batch size')
