@@ -57,9 +57,9 @@ def forward_with_loss(nets, batch_data, is_train=True):
     label_seg = label_seg.cuda()
 
     # forward
-    (cF4, cpool_idx, cpool1, cpool_idx2, cpool2, cpool_idx3, cpool3) = net_encoder(input_img)
-    pred_featuremap_1 = net_decoder_1(cF4, cpool_idx, cpool1, cpool_idx2, cpool2, cpool_idx3, cpool3)
-    pred_featuremap_2 = net_decoder_2(cF4, cpool_idx, cpool1, cpool_idx2, cpool2, cpool_idx3, cpool3)
+    out, pool1, pool2, pool3 = net_encoder(input_img)
+    pred_featuremap_1 = net_decoder_1(out, pool1, pool2, pool3)
+    pred_featuremap_2 = net_decoder_2(out, pool1, pool2, pool3)
 
     err_seg = crit1(pred_featuremap_1, label_seg)
     err_recon = crit2(pred_featuremap_2, input_img)
@@ -502,7 +502,7 @@ if __name__ == '__main__':
                         help='number of classes')
     parser.add_argument('--workers', default=4, type=int,
                         help='number of data loading workers')
-    parser.add_argument('--imgSize', default=720, type=int,
+    parser.add_argument('--imgSize', default=600, type=int,
                         help='input crop size for training')
 
     # Misc arguments

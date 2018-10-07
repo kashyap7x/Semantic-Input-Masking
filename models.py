@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class ModelBuilder():
     def build_encoder(self, weights=''):
         net_encoder = VGGEncoder()
@@ -122,7 +123,7 @@ class VGGEncoder(nn.Module):
         out = self.conv4_1(out)
         out = self.relu4_1(out)
 
-        return (out, pool1_idx, pool1.size(), pool2_idx, pool2.size(), pool3_idx, pool3.size())
+        return out, pool1_idx, pool2_idx, pool3_idx
 
 
 class VGGDecoder(nn.Module):
@@ -183,14 +184,13 @@ class VGGDecoder(nn.Module):
         self.pad1_1 = nn.ReflectionPad2d((1, 1, 1, 1))
         self.conv_out = nn.Conv2d(64, self.num_class, 3, 1, 0)
 
-    def forward(self, x, pool1_idx=None, pool1_size=None, pool2_idx=None, pool2_size=None, pool3_idx=None,
-                pool3_size=None):
+    def forward(self, x, pool1_idx=None, pool2_idx=None, pool3_idx=None):
         out = x
 
         out = self.pad4_1(out)
         out = self.conv4_1(out)
         out = self.relu4_1(out)
-        out = self.unpool3(out, pool3_idx, output_size=pool3_size)
+        out = self.unpool3(out, pool3_idx)
 
         out = self.pad3_4(out)
         out = self.conv3_4(out)
@@ -207,7 +207,7 @@ class VGGDecoder(nn.Module):
         out = self.pad3_1(out)
         out = self.conv3_1(out)
         out = self.relu3_1(out)
-        out = self.unpool2(out, pool2_idx, output_size=pool2_size)
+        out = self.unpool2(out, pool2_idx)
 
         out = self.pad2_2(out)
         out = self.conv2_2(out)
@@ -216,7 +216,7 @@ class VGGDecoder(nn.Module):
         out = self.pad2_1(out)
         out = self.conv2_1(out)
         out = self.relu2_1(out)
-        out = self.unpool1(out, pool1_idx, output_size=pool1_size)
+        out = self.unpool1(out, pool1_idx)
 
         out = self.pad1_2(out)
         out = self.conv1_2(out)
