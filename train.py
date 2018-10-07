@@ -373,7 +373,7 @@ def adjust_learning_rate(optimizers, epoch, args):
 def main(args):
     # Network Builders
     builder = ModelBuilder()
-    net_encoder = builder.build_encoder(weights=args.weigts_encoder)
+    net_encoder = builder.build_encoder(weights=args.weights_encoder)
     net_decoder_1 = builder.build_decoder(weights=args.weights_decoder)
     net_decoder_2 = builder.build_decoder(num_class=3, use_softmax=false,
                                           weights=args.weights_recon)
