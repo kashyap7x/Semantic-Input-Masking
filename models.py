@@ -122,7 +122,7 @@ class VGGEncoder(nn.Module):
         out = self.conv4_1(out)
         out = self.relu4_1(out)
 
-        return out, pool1_idx, pool1.size(), pool2_idx, pool2.size(), pool3_idx, pool3.size()
+        return (out, pool1_idx, pool1.size(), pool2_idx, pool2.size(), pool3_idx, pool3.size())
 
 
 class VGGDecoder(nn.Module):
@@ -181,7 +181,7 @@ class VGGDecoder(nn.Module):
         # 224 x 224
 
         self.pad1_1 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv1_1 = nn.Conv2d(64, self.num_class, 3, 1, 0)
+        self.conv_out = nn.Conv2d(64, self.num_class, 3, 1, 0)
 
     def forward(self, x, pool1_idx=None, pool1_size=None, pool2_idx=None, pool2_size=None, pool3_idx=None,
                 pool3_size=None):
@@ -223,7 +223,7 @@ class VGGDecoder(nn.Module):
         out = self.relu1_2(out)
 
         out = self.pad1_1(out)
-        out = self.conv1_1(out)
+        out = self.conv_out(out)
 
         if self.use_softmax:
             out = nn.functional.log_softmax(out)

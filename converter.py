@@ -13,8 +13,8 @@ def weight_assign(lua, pth, maps):
 
 if __name__ == '__main__':
     ## VGGEncoder4
-    vgg4 = load_lua('encoder.t7', long_size=8)
-    e4 = VGGEncoder(4)
+    vgg4 = load_lua('pretrained/encoder.t7', long_size=8)
+    e4 = VGGEncoder()
     weight_assign(vgg4, e4, {
         'conv0': 0,
         'conv1_1': 2,
@@ -27,11 +27,11 @@ if __name__ == '__main__':
         'conv3_4': 25,
         'conv4_1': 29,
     })
-    torch.save(e4.state_dict(), 'encoder_pretrained.pth')
+    torch.save(e4.state_dict(), 'pretrained/encoder_pretrained.pth')
     
     ## VGGDecoder4
-    inv4 = load_lua('recon.t7', long_size=8)
-    d4 = VGGDecoder(4)
+    inv4 = load_lua('pretrained/recon.t7', long_size=8)
+    d4 = VGGDecoder(num_class=3,use_softmax=False)
     weight_assign(inv4, d4, {
         'conv4_1': 1,
         'conv3_4': 5,
@@ -43,4 +43,4 @@ if __name__ == '__main__':
         'conv1_2': 25,
         'conv1_1': 28,
     })
-    torch.save(d4.state_dict(), 'recon_pretrained.pth')
+    torch.save(d4.state_dict(), 'pretrained/recon_pretrained.pth')

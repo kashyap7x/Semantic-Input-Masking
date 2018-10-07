@@ -57,13 +57,14 @@ def forward_with_loss(nets, batch_data, is_train=True):
     label_seg = label_seg.cuda()
 
     # forward
-    pred_featuremap_1 = net_decoder_1(net_encoder(input_img))
-    pred_featuremap_2 = net_decoder_2(net_encoder(input_img))
+    (cF4, cpool_idx, cpool1, cpool_idx2, cpool2, cpool_idx3, cpool3) = net_encoder(input_img)
+    pred_featuremap_1 = net_decoder_1(cF4, cpool_idx, cpool1, cpool_idx2, cpool2, cpool_idx3, cpool3)
+    pred_featuremap_2 = net_decoder_2(cF4, cpool_idx, cpool1, cpool_idx2, cpool2, cpool_idx3, cpool3)
 
     err_seg = crit1(pred_featuremap_1, label_seg)
     err_recon = crit2(pred_featuremap_2, input_img)
 
-    err = err_seg + err_recon
+    err = err_seg + args.beta * err_recon
 
     return pred_featuremap_1, pred_featuremap_2, err
 
@@ -97,7 +98,7 @@ def visualize(batch_data, pred, args):
 
 
 # train one epoch
-def train(nets, loader, loader_adapt, optimizers, history, epoch, args):
+def train(nets, loader, optimizers, history, epoch, args):
     batch_time = AverageMeter()
     data_time = AverageMeter()
 
@@ -110,10 +111,7 @@ def train(nets, loader, loader_adapt, optimizers, history, epoch, args):
 
     # main loop
     tic = time.time()
-    # for i, batch_data in enumerate(loader):
-    for i in range(args.epoch_iters):
-        batch_data, is_adapt = randomSampler(args.ratio_source_init, args.ratio_source_final, \
-                                             args.ratio_source_final_epoch, epoch, loader, loader_adapt)
+    for i, batch_data in enumerate(loader):
 
         data_time.update(time.time() - tic)
         for net in nets:
@@ -253,9 +251,9 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
 
         fig = plt.figure()
         plt.plot(history['train']['epoch'], history['train']['acc'],
-                 color='b', label='training')
+                 color='b', label='gta')
         plt.plot(history['val']['epoch'], history['val']['acc'],
-                 color='c', label='validation')
+                 color='c', label='cityscapes')
         plt.plot(history['val_2']['epoch'], history['val_2']['acc'],
                  color='g', label='bdd')
         plt.legend()
@@ -375,7 +373,7 @@ def main(args):
     builder = ModelBuilder()
     net_encoder = builder.build_encoder(weights=args.weights_encoder)
     net_decoder_1 = builder.build_decoder(weights=args.weights_decoder)
-    net_decoder_2 = builder.build_decoder(num_class=3, use_softmax=false,
+    net_decoder_2 = builder.build_decoder(num_class=3, use_softmax=False,
                                           weights=args.weights_recon)
 
     if args.weighted_class:
@@ -385,10 +383,10 @@ def main(args):
     crit2 = nn.MSELoss()
 
     # Dataset and Loader
-    dataset_train = GTA(root=args.root_GTA, cropSize=args.imgSize, is_train=1)
-    dataset_val = CityScapes('val', root=args.root_Cityscapes, cropSize=args.imgSize,
+    dataset_train = GTA(root=args.root_gta, cropSize=args.imgSize, is_train=1)
+    dataset_val = CityScapes('val', root=args.root_cityscapes, cropSize=args.imgSize,
                              max_sample=args.num_val, is_train=0)
-    dataset_val_2 = BDD('val', root=args.root_BDD, cropSize=args.imgSize,
+    dataset_val_2 = BDD('val', root=args.root_bdd, cropSize=args.imgSize,
                         max_sample=args.num_val, is_train=0)
 
     loader_train = torch.utils.data.DataLoader(
@@ -435,7 +433,7 @@ def main(args):
     # optional initial eval
     # evaluate(nets, loader_val, loader_val_2, history, 0, args)
     for epoch in range(1, args.num_epoch + 1):
-        train(nets, loader_train, loader_adapt, optimizers, history, epoch, args)
+        train(nets, loader_train, optimizers, history, epoch, args)
 
         # Evaluation and visualization
         if epoch % args.eval_epoch == 0:
@@ -488,6 +486,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr_decoder', default=1e-2, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
+    parser.add_argument('--beta', default=1, type=float,
+                        help='weight of the reconstruction loss')
     parser.add_argument('--beta1', default=0.9, type=float,
                         help='momentum for sgd, beta1 for adam')
     parser.add_argument('--weight_decay', default=1e-4, type=float,
