@@ -373,10 +373,10 @@ def adjust_learning_rate(optimizers, epoch, args):
 def main(args):
     # Network Builders
     builder = ModelBuilder()
-    net_encoder = builder.build_encoder(weights='')
-    net_decoder_1 = builder.build_decoder(weights='')
+    net_encoder = builder.build_encoder(weights=args.weigts_encoder)
+    net_decoder_1 = builder.build_decoder(weights=args.weights_decoder)
     net_decoder_2 = builder.build_decoder(num_class=3, use_softmax=false,
-                                          weights='')
+                                          weights=args.weights_recon)
 
     if args.weighted_class:
         crit1 = nn.NLLLoss2d(ignore_index=-1, weight=args.class_weight)
@@ -456,13 +456,13 @@ if __name__ == '__main__':
     parser.add_argument('--id', default='baseline',
                         help="a name for identifying the experiment")
     parser.add_argument('--weights_encoder',
-                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/encoder.pth',
+                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/encoder_pretrained.pth',
                         help="weights to initialize encoder")
     parser.add_argument('--weights_decoder',
-                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/decoder.pth',
+                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/recon_pretrained.pth',
                         help="weights to initialize segmentation branch")
     parser.add_argument('--weights_recon',
-                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/decoder.pth',
+                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/recon_pretrained.pth',
                         help="weights to initialize reconstruction branch")
 
     # Path related arguments
