@@ -51,8 +51,14 @@ def forward_with_loss(nets, batch_data, is_train=True):
     (imgs, segs, infos) = batch_data
 
     # feed input data
-    input_img = Variable(imgs, volatile=not is_train)
-    label_seg = Variable(segs, volatile=not is_train)
+    if is_train:
+        input_img = Variable(imgs)
+        label_seg = Variable(segs)
+    else:
+        with torch.no_grad():
+            input_img = Variable(imgs)
+            label_seg = Variable(segs)
+
     input_img = input_img.cuda()
     label_seg = label_seg.cuda()
 
@@ -61,13 +67,14 @@ def forward_with_loss(nets, batch_data, is_train=True):
     pred_featuremap_1 = net_decoder_1(out, pool1, pool2, pool3)
 
     err = crit1(pred_featuremap_1, label_seg)
-
+    
     if is_train:
         pred_featuremap_2 = net_decoder_2(out, pool1, pool2, pool3)
-        err += args.beta * crit2(pred_featuremap_2, input_img)
-        return pred_featuremap_1, pred_featuremap_2, err
     else:
-        return pred_featuremap_1, err
+        pred_featuremap_2 = input_img
+    err += args.beta * crit2(pred_featuremap_2, input_img)
+
+    return pred_featuremap_1, pred_featuremap_2, err
 
 
 def visualize(batch_data, pred, args):
@@ -168,7 +175,7 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
     for i, batch_data in enumerate(loader):
         # forward pass
         torch.cuda.empty_cache()
-        pred, err = forward_with_loss(nets, batch_data, is_train=False)
+        pred, _, err = forward_with_loss(nets, batch_data, is_train=False)
         loss_meter.update(err.data.item())
         print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
 
@@ -484,7 +491,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr_decoder', default=1e-2, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
-    parser.add_argument('--beta', default=1, type=float,
+    parser.add_argument('--beta', default=0.1, type=float,
                         help='weight of the reconstruction loss')
     parser.add_argument('--beta1', default=0.9, type=float,
                         help='momentum for sgd, beta1 for adam')
@@ -500,7 +507,7 @@ if __name__ == '__main__':
                         help='number of classes')
     parser.add_argument('--workers', default=4, type=int,
                         help='number of data loading workers')
-    parser.add_argument('--imgSize', default=600, type=int,
+    parser.add_argument('--imgSize', default=560, type=int,
                         help='input crop size for training')
 
     # Misc arguments
@@ -523,7 +530,7 @@ if __name__ == '__main__':
         print("{:16} {}".format(key, val))
 
     args.batch_size = args.num_gpus * args.batch_size_per_gpu
-    args.batch_size_eval = args.batch_size_per_gpu_eval * args.batch_size_per_gpu
+    args.batch_size_eval = args.batch_size_per_gpu_eval
 
     # Specify certain arguments
     if args.weighted_class:
