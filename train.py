@@ -59,14 +59,14 @@ def forward_with_loss(nets, batch_data, is_train=True):
     # forward
     out, pool1, pool2, pool3 = net_encoder(input_img)
     pred_featuremap_1 = net_decoder_1(out, pool1, pool2, pool3)
+
+    err = crit1(pred_featuremap_1, label_seg)
+
     if is_train:
         pred_featuremap_2 = net_decoder_2(out, pool1, pool2, pool3)
-    err = crit1(pred_featuremap_1, label_seg)   
-    if is_train:
         err += args.beta * crit2(pred_featuremap_2, input_img)
         return pred_featuremap_1, pred_featuremap_2, err
     else:
-        print(err)
         return pred_featuremap_1, err
 
 
@@ -494,7 +494,7 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=-1, type=int,
+    parser.add_argument('--num_val', default=30, type=int,
                         help='number of images to evaluate')
     parser.add_argument('--num_class', default=19, type=int,
                         help='number of classes')
@@ -523,7 +523,7 @@ if __name__ == '__main__':
         print("{:16} {}".format(key, val))
 
     args.batch_size = args.num_gpus * args.batch_size_per_gpu
-    args.batch_size_eval = args.batch_size_per_gpu_eval
+    args.batch_size_eval = args.batch_size_per_gpu_eval * args.batch_size_per_gpu
 
     # Specify certain arguments
     if args.weighted_class:
