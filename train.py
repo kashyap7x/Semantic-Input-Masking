@@ -65,7 +65,7 @@ def forward_with_loss(nets, batch_data, is_train=True):
     # forward
     out, pool1, pool2, pool3 = net_encoder(input_img)
     pred_featuremap_1 = net_decoder_1(out, pool1, pool2, pool3)
-
+    
     err = crit1(pred_featuremap_1, label_seg)
     
     if is_train:
@@ -196,7 +196,7 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
         print('class [{}], IoU: {}'.format(trainID2Class[i], _iou))
 
     print('[Cityscapes Eval Summary]:')
-    print('Epoch: {}, Loss: {}, Mean IoU: {:.4}, Accurarcy: {:.2f}%'
+    print('Epoch: {}, Loss: {}, Mean IoU: {:.4}, Accuracy: {:.2f}%'
           .format(epoch, loss_meter.average(), iou.mean(), acc_meter.average() * 100))
 
     history['val']['epoch'].append(epoch)
@@ -228,7 +228,7 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
         print('class [{}], IoU: {}'.format(trainID2Class[i], _iou))
 
     print('[BDD Eval Summary]:')
-    print('Epoch: {}, Loss: {}, Mean IoU: {:.4}, Accurarcy: {:.2f}%'
+    print('Epoch: {}, Loss: {}, Mean IoU: {:.4}, Accuracy: {:.2f}%'
           .format(epoch, loss_meter_2.average(), iou.mean(), acc_meter_2.average() * 100))
 
     history['val_2']['epoch'].append(epoch)
@@ -436,7 +436,7 @@ def main(args):
                for split in ('train', 'val', 'val_2')}
 
     # optional initial eval
-    evaluate(nets, loader_val, loader_val_2, history, 0, args)
+    # evaluate(nets, loader_val, loader_val_2, history, 0, args)
     for epoch in range(1, args.num_epoch + 1):
         train(nets, loader_train, optimizers, history, epoch, args)
 
@@ -501,7 +501,7 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=30, type=int,
+    parser.add_argument('--num_val', default=32, type=int,
                         help='number of images to evaluate')
     parser.add_argument('--num_class', default=19, type=int,
                         help='number of classes')
@@ -536,7 +536,7 @@ if __name__ == '__main__':
     if args.weighted_class:
         args.enhanced_weight = 2.0
         args.class_weight = np.ones([19], dtype=np.float32)
-        enhance_class = [1, 3, 4, 5, 6, 7, 12]
+        enhance_class = [1, 3, 4, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18]
         args.class_weight[enhance_class] = args.enhanced_weight
         args.class_weight = torch.from_numpy(args.class_weight.astype(np.float32))
 
@@ -548,7 +548,7 @@ if __name__ == '__main__':
     args.id += '-epoch' + str(args.num_epoch)
     args.id += '-decay' + str(args.weight_decay)
     if args.weighted_class:
-        args.id += '-weighted' + str(args.enhanced_weight)
+        args.id += '-weighted' + str(args.enhanced_weight) + str(enhance_class)
 
     print('Model ID: {}'.format(args.id))
 

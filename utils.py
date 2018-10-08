@@ -100,7 +100,7 @@ def accuracy(batch_data, pred):
     _, preds = torch.max(pred.data.cpu(), dim=1)
     valid = (segs >= 0)
     acc = float(torch.sum(valid * (preds == segs)).item()) / float(torch.sum(valid).item() + 1e-10)
-    return acc, torch.sum(valid)
+    return acc, float(torch.sum(valid))
 
 
 def intersectionAndUnion(batch_data, pred, numClass):

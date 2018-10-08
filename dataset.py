@@ -218,7 +218,6 @@ class CityScapes(torchdata.Dataset):
 class BDD(torchdata.Dataset):
     def __init__(self, mode, root, cropSize=720, ignore_label=-1, max_sample=-1, is_train=1):
         self.list_sample = make_BDD(mode, root)
-        self.list_sample = self.selfcheck(self.list_sample)
         self.mode = mode
         self.cropSize = cropSize
         self.is_train = is_train

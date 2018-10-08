@@ -226,6 +226,6 @@ class VGGDecoder(nn.Module):
         out = self.conv_out(out)
 
         if self.use_softmax:
-            out = nn.functional.log_softmax(out,dim=0)
+            out = nn.functional.log_softmax(out, dim=1)
 
         return out
