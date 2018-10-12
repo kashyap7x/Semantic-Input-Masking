@@ -63,17 +63,12 @@ def forward_with_loss(nets, batch_data, is_train=True):
     label_seg = label_seg.cuda()
 
     # forward
-    out, pool1, pool2, pool3 = net_encoder(input_img)
-    pred_featuremap_1 = net_decoder_1(out, pool1, pool2, pool3)
+    out = net_encoder(input_img)
+    pred_featuremap_1 = net_decoder_1(out)
+    pred_featuremap_2 = net_decoder_2(out)
     
-    err = crit1(pred_featuremap_1, label_seg)
+    err = crit1(pred_featuremap_1, label_seg) + args.beta * crit2(pred_featuremap_2, input_img)
     
-    if is_train:
-        pred_featuremap_2 = net_decoder_2(out, pool1, pool2, pool3)
-    else:
-        pred_featuremap_2 = input_img
-    err += args.beta * crit2(pred_featuremap_2, input_img)
-
     return pred_featuremap_1, pred_featuremap_2, err
 
 
@@ -378,7 +373,7 @@ def main(args):
     builder = ModelBuilder()
     net_encoder = builder.build_encoder(weights=args.weights_encoder)
     net_decoder_1 = builder.build_decoder(weights=args.weights_decoder)
-    net_decoder_2 = builder.build_decoder(num_class=3, use_softmax=False,
+    net_decoder_2 = builder.build_decoder(arch='c1',num_class=3, use_softmax=False,
                                           weights=args.weights_recon)
 
     if args.weighted_class:
@@ -436,7 +431,7 @@ def main(args):
                for split in ('train', 'val', 'val_2')}
 
     # optional initial eval
-    # evaluate(nets, loader_val, loader_val_2, history, 0, args)
+    evaluate(nets, loader_val, loader_val_2, history, 0, args)
     for epoch in range(1, args.num_epoch + 1):
         train(nets, loader_train, optimizers, history, epoch, args)
 
@@ -459,13 +454,13 @@ if __name__ == '__main__':
     parser.add_argument('--id', default='baseline',
                         help="a name for identifying the experiment")
     parser.add_argument('--weights_encoder',
-                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/encoder_pretrained.pth',
+                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/r18_pretrained.pth',
                         help="weights to initialize encoder")
     parser.add_argument('--weights_decoder',
-                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/recon_pretrained.pth',
+                        default='',
                         help="weights to initialize segmentation branch")
     parser.add_argument('--weights_recon',
-                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/recon_pretrained.pth',
+                        default='',
                         help="weights to initialize reconstruction branch")
 
     # Path related arguments
@@ -479,7 +474,7 @@ if __name__ == '__main__':
     # optimization related arguments
     parser.add_argument('--num_gpus', default=3, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=3, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=6, type=int,
                         help='input batch size')
     parser.add_argument('--batch_size_per_gpu_eval', default=1, type=int,
                         help='eval batch size')
@@ -507,7 +502,7 @@ if __name__ == '__main__':
                         help='number of classes')
     parser.add_argument('--workers', default=4, type=int,
                         help='number of data loading workers')
-    parser.add_argument('--imgSize', default=560, type=int,
+    parser.add_argument('--imgSize', default=720, type=int,
                         help='input crop size for training')
 
     # Misc arguments
@@ -547,6 +542,7 @@ if __name__ == '__main__':
     args.id += '-lr_decoder' + str(args.lr_decoder)
     args.id += '-epoch' + str(args.num_epoch)
     args.id += '-decay' + str(args.weight_decay)
+    args.id += '-beta' + str(args.beta)
     if args.weighted_class:
         args.id += '-weighted' + str(args.enhanced_weight) + str(enhance_class)
 
