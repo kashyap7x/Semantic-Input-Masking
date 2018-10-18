@@ -71,6 +71,28 @@ def forward_with_loss(nets, batch_data, is_train=True):
     
     return pred_featuremap_1, pred_featuremap_2, err
 
+def visualize_recon(batch_data, recons, args):
+    (imgs, segs, infos) = batch_data
+
+    for j in range(len(infos)):
+        img = imgs[j].clone()
+        for t, m, s in zip(img,
+                           [0.485, 0.456, 0.406],
+                           [0.229, 0.224, 0.225]):
+            t.mul_(s).add_(m)
+        img = (img.numpy().transpose((1, 2, 0)) * 255).astype(np.uint8)
+
+        recon = recons[j].clone()
+        for t, m, s in zip(recon,
+                           [0.485, 0.456, 0.406],
+                           [0.229, 0.224, 0.225]):
+            t.mul_(s).add_(m)
+        recon = (recon.cpu().detach().numpy().transpose((1, 2, 0)) * 255).astype(np.uint8)
+
+        im_vis = np.concatenate((img, recon),
+                                axis=1).astype(np.uint8)
+        imsave(os.path.join(args.vis,
+                            infos[j].replace('/', '_')), im_vis)
 
 def visualize(batch_data, pred, args):
     colors = loadmat('colormap.mat')['colors']
@@ -170,7 +192,7 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
     for i, batch_data in enumerate(loader):
         # forward pass
         torch.cuda.empty_cache()
-        pred, _, err = forward_with_loss(nets, batch_data, is_train=False)
+        pred, recon, err = forward_with_loss(nets, batch_data, is_train=False)
         loss_meter.update(err.data.item())
         print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
 
@@ -185,6 +207,7 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
 
         # visualization
         visualize(batch_data, pred, args)
+        visualize_recon(batch_data, recon, args)
 
     iou = intersection_meter.sum / (union_meter.sum + 1e-10)
     for i, _iou in enumerate(iou):
@@ -227,8 +250,8 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
           .format(epoch, loss_meter_2.average(), iou.mean(), acc_meter_2.average() * 100))
 
     history['val_2']['epoch'].append(epoch)
-    history['val_2']['err'].append(loss_meter.average())
-    history['val_2']['acc'].append(acc_meter.average())
+    history['val_2']['err'].append(loss_meter_2.average())
+    history['val_2']['acc'].append(acc_meter_2.average())
     history['val_2']['mIoU'].append(iou.mean())
 
     # Plot figure
@@ -511,6 +534,8 @@ if __name__ == '__main__':
                         help='folder to output checkpoints')
     parser.add_argument('--vis', default='./vis',
                         help='folder to output visualization during training')
+    parser.add_argument('--vis_recon', default='./vis_recon',
+                        help='folder to output visualization of reconstruction during training')
     parser.add_argument('--disp_iter', type=int, default=20,
                         help='frequency to display')
     parser.add_argument('--eval_epoch', type=int, default=1,
