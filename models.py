@@ -365,3 +365,105 @@ class PPMDecoder(nn.Module):
             x = nn.functional.log_softmax(x, dim=1)
 
         return x
+
+
+class Whitening(nn.Module):
+    def __init__(self):
+        super(Whitening, self).__init__()
+        
+    def forward(self, cont):
+        cont_c, cont_h, cont_w = cont.size(0), cont.size(1), cont.size(2)
+        cont_feat = cont.view(cont_c, -1).clone()
+        
+        cFSize = cont_feat.size()
+        c_mean = torch.mean(cont_feat, 1)  # c x (h x w)
+        c_mean = c_mean.unsqueeze(1).expand_as(cont_feat)
+        cont_feat = cont_feat - c_mean
+        
+        iden = torch.eye(cFSize[0])  # .double()
+        iden = iden.cuda()
+        
+        contentConv = torch.mm(cont_feat, cont_feat.t()).div(cFSize[1] - 1) + iden
+        c_u, c_e, c_v = torch.svd(contentConv, some=False)
+        
+        k_c = cFSize[0]
+        for i in range(cFSize[0] - 1, -1, -1):
+            if c_e[i] >= 0.00001:
+                k_c = i + 1
+                break
+        
+        c_d = (c_e[0:k_c]).pow(-0.5)
+        step1 = torch.mm(c_v[:, 0:k_c], torch.diag(c_d))
+        step2 = torch.mm(step1, (c_v[:, 0:k_c].t()))
+        whiten_cF = torch.mm(step2, cont_feat)
+        
+        whiten_cF = whiten_cF.view_as(cont)
+        
+        return whiten_cF
+    
+
+class AdditiveNoise(nn.Module):
+    def __init__(self, var):
+        super(AdditiveNoise, self).__init__()
+        self.var = var
+        
+    def forward(self, cont):
+        noise = torch.randn(cont.size())*self.var
+        noise = noise.cuda()
+        cont_feat = cont + noise
+        
+        return cont_feat
+    
+
+class WhitenedNoise(nn.Module):
+    def __init__(self, var):
+        super(WhitenedNoise, self).__init__()
+        self.var = var
+        
+    def forward(self, cont):
+        cont_c, cont_h, cont_w = cont.size(0), cont.size(1), cont.size(2)
+        cont_feat = cont.view(cont_c, -1).clone()
+        
+        cFSize = cont_feat.size()
+        c_mean = torch.mean(cont_feat, 1)  # c x (h x w)
+        c_mean = c_mean.unsqueeze(1).expand_as(cont_feat)
+        cont_feat = cont_feat - c_mean
+        
+        iden = torch.eye(cFSize[0])  # .double()
+        iden = iden.cuda()
+        
+        contentConv = torch.mm(cont_feat, cont_feat.t()).div(cFSize[1] - 1) + iden
+        c_u, c_e, c_v = torch.svd(contentConv, some=False)
+        
+        k_c = cFSize[0]
+        for i in range(cFSize[0] - 1, -1, -1):
+            if c_e[i] >= 0.00001:
+                k_c = i + 1
+                break
+        
+        c_d = (c_e[0:k_c]).pow(-0.5)
+        step1 = torch.mm(c_v[:, 0:k_c], torch.diag(c_d))
+        step2 = torch.mm(step1, (c_v[:, 0:k_c].t()))
+        whiten_cF = torch.mm(step2, cont_feat)
+        
+        noise = torch.randn(cont_feat.size())*self.var
+        styl_feat = noise.cuda()
+        sFSize = styl_feat.size()
+        s_mean = torch.mean(styl_feat, 1)
+        styl_feat = styl_feat - s_mean.unsqueeze(1).expand_as(styl_feat)
+        styleConv = torch.mm(styl_feat, styl_feat.t()).div(sFSize[1] - 1)
+        s_u, s_e, s_v = torch.svd(styleConv, some=False)
+        
+        k_s = sFSize[0]
+        for i in range(sFSize[0] - 1, -1, -1):
+            if s_e[i] >= 0.00001:
+                k_s = i + 1
+                break
+        
+        s_d = (s_e[0:k_s]).pow(0.5)
+        targetFeature = torch.mm(torch.mm(torch.mm(s_v[:, 0:k_s], torch.diag(s_d)), (s_v[:, 0:k_s].t())), whiten_cF)
+        targetFeature = targetFeature + s_mean.unsqueeze(1).expand_as(targetFeature)
+        
+        targetFeature = targetFeature.view_as(cont)
+        
+        return targetFeature

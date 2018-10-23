@@ -13,7 +13,7 @@ from scipy.io import loadmat
 from scipy.misc import imresize, imsave
 # Our libs
 from dataset import GTA, CityScapes, BDD
-from models import ModelBuilder
+from models import ModelBuilder, Whitening, AdditiveNoise, WhitenedNoise
 from utils import AverageMeter, colorEncode, accuracy, make_variable, intersectionAndUnion
 
 import matplotlib
@@ -46,7 +46,7 @@ trainID2Class = {
 
 
 def forward_with_loss(nets, batch_data, is_train=True):
-    (net_encoder, net_decoder_1, net_decoder_2, crit1, crit2) = nets
+    (net_encoder, net_decoder_1, net_decoder_2, style, crit1, crit2) = nets
     (imgs, segs, infos) = batch_data
 
     # feed input data
@@ -62,7 +62,7 @@ def forward_with_loss(nets, batch_data, is_train=True):
     label_seg = label_seg.cuda()
 
     # forward
-    out = net_encoder(input_img)
+    out = style(net_encoder(input_img))
     pred_featuremap_1 = net_decoder_1(out)
     pred_featuremap_2 = net_decoder_2(out)
 
@@ -91,9 +91,8 @@ def visualize_recon(batch_data, recons, args):
 
         im_vis = np.concatenate((img, recon),
                                 axis=1).astype(np.uint8)
-        imsave(os.path.join(args.vis,
+        imsave(os.path.join(args.vis_recon,
                             infos[j].replace('/', '_')), im_vis)
-        # imsave('./tmp/tmp.png', im_vis)
 
 
 def visualize(batch_data, pred, args):
@@ -122,9 +121,6 @@ def visualize(batch_data, pred, args):
                                 axis=1).astype(np.uint8)
         imsave(os.path.join(args.vis,
                             infos[j].replace('/', '_')), im_vis)
-
-
-# train one epoch
 
 
 def evaluate(nets, loader, loader_2, history, epoch, args, isVis=True):
@@ -212,43 +208,6 @@ def evaluate(nets, loader, loader_2, history, epoch, args, isVis=True):
     history['val_2']['acc'].append(acc_meter_2.average())
     history['val_2']['mIoU'].append(iou.mean())
 
-    # Plot figure
-    # todo: modify the plot figure here
-    # if epoch > 0:
-    #     fig = plt.figure()
-    #     plt.plot(np.asarray(history['train']['epoch']),
-    #              np.log(np.asarray(history['train']['err'])),
-    #              color='b', label='gta')
-    #     plt.plot(np.asarray(history['val']['epoch']),
-    #              np.log(np.asarray(history['val']['err'])),
-    #              color='c', label='cityscapes')
-    #     plt.plot(np.asarray(history['val_2']['epoch']),
-    #              np.log(np.asarray(history['val_2']['err'])),
-    #              color='g', label='bdd')
-    #     plt.legend()
-    #     plt.xlabel('Epoch')
-    #     plt.ylabel('Log(loss)')
-    #     fig.savefig('{}/loss.png'.format(args.ckpt), dpi=200)
-    #     plt.close('all')
-    #
-    #     fig = plt.figure()
-    #     plt.plot(history['train']['epoch'], history['train']['acc'],
-    #              color='b', label='gta')
-    #     plt.plot(history['val']['epoch'], history['val']['acc'],
-    #              color='c', label='cityscapes')
-    #     plt.plot(history['val_2']['epoch'], history['val_2']['acc'],
-    #              color='g', label='bdd')
-    #     plt.legend()
-    #     plt.xlabel('Epoch')
-    #     plt.ylabel('Accuracy')
-    #     fig.savefig('{}/accuracy.png'.format(args.ckpt), dpi=200)
-    #     plt.close('all')
-
-
-
-
-
-
 def main(args):
     # Network Builders
     builder = ModelBuilder()
@@ -262,7 +221,10 @@ def main(args):
     else:
         crit1 = nn.NLLLoss(ignore_index=-1)
     crit2 = nn.MSELoss()
-
+    
+    # Style application module
+    style = WhitenedNoise(100)
+    
     # Dataset and Loader
     dataset_train = GTA(root=args.root_gta, cropSize=args.imgSize, is_train=1)
     dataset_val = CityScapes('val', root=args.root_cityscapes, cropSize=args.imgSize,
@@ -300,19 +262,16 @@ def main(args):
         net_decoder_2 = nn.DataParallel(net_decoder_2,
                                         device_ids=range(args.num_gpus))
 
-    nets = (net_encoder, net_decoder_1, net_decoder_2, crit1, crit2)
+    nets = (net_encoder, net_decoder_1, net_decoder_2, style, crit1, crit2)
     for net in nets:
         net.cuda()
-
-
 
     # Main loop
     history = {split: {'epoch': [], 'err': [], 'acc': [], 'mIoU': []}
                for split in ('train', 'val', 'val_2')}
 
-    # optional initial eval
+    # eval
     evaluate(nets, loader_val, loader_val_2, history, 0, args)
-
 
     print('Evaluation Done!')
 
@@ -410,7 +369,7 @@ if __name__ == '__main__':
         args.class_weight[enhance_class] = args.enhanced_weight
         args.class_weight = torch.from_numpy(args.class_weight.astype(np.float32))
 
-    args.id = 'baseline-ngpus3-batchSize9-imgSize720-lr_encoder0.001-lr_decoder0.01-epoch20-decay0.0001-beta0.1-weighted2.0[1, 3, 4, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18]'
+    args.id = 'baseline-ngpus3-batchSize18-imgSize720-lr_encoder0.001-lr_decoder0.01-epoch20-decay0.0001-beta0.1-weighted2.0[1, 3, 4, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18]'
 
     print(args)
 
@@ -420,7 +379,16 @@ if __name__ == '__main__':
                                           'decoder_1' + args.suffix)
     args.weights_decoder_2 = os.path.join(args.ckpt, args.id,
                                           'decoder_2' + args.suffix)
-
+    
+    args.id = 'whitenoise100'
+    args.vis = os.path.join(args.vis, args.id)
+    args.vis_recon = os.path.join(args.vis_recon, args.id)
+    
+    if not os.path.exists(args.vis):
+        os.makedirs(args.vis)
+    if not os.path.exists(args.vis_recon):
+        os.makedirs(args.vis_recon)
+        
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     main(args)

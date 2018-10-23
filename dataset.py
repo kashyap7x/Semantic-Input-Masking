@@ -75,7 +75,7 @@ class GTA(torchdata.Dataset):
         print('# samples: {}'.format(num_sample))
 
     def _scale_and_crop(self, img, seg, cropSize, is_train):
-        h_s, w_s = 720, 1310
+        h_s, w_s = 720, 1312
         img_scale = imresize(img, (h_s, w_s), interp='bilinear')
         seg = (seg + 1).astype(np.uint8)
         seg_scale = imresize(seg, (h_s, w_s), interp='nearest')
