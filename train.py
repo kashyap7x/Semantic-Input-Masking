@@ -13,7 +13,7 @@ from scipy.io import loadmat
 from scipy.misc import imresize, imsave
 # Our libs
 from dataset import GTA, CityScapes, BDD
-from models import ModelBuilder
+from models import ModelBuilder, WhitenedNoise
 from utils import AverageMeter, colorEncode, accuracy, make_variable, intersectionAndUnion
 
 import matplotlib
@@ -47,7 +47,7 @@ trainID2Class = {
 
 
 def forward_with_loss(nets, batch_data, is_train=True):
-    (net_encoder, net_decoder_1, net_decoder_2, crit1, crit2) = nets
+    (net_encoder, net_decoder_1, net_decoder_2, style, crit1, crit2) = nets
     (imgs, segs, infos) = batch_data
 
     # feed input data
@@ -63,7 +63,7 @@ def forward_with_loss(nets, batch_data, is_train=True):
     label_seg = label_seg.cuda()
 
     # forward
-    out = net_encoder(input_img)
+    out = style(net_encoder(input_img))
     pred_featuremap_1 = net_decoder_1(out)
     pred_featuremap_2 = net_decoder_2(out)
     
@@ -265,7 +265,7 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
 
 def checkpoint(nets, history, args):
     print('Saving checkpoints...')
-    (net_encoder, net_decoder_1, net_decoder_2, crit1, crit2) = nets
+    (net_encoder, net_decoder_1, net_decoder_2, style, crit1, crit2) = nets
     suffix_latest = 'latest.pth'
     suffix_best_acc = 'best_acc.pth'
     suffix_best_mIoU = 'best_mIoU.pth'
@@ -334,7 +334,7 @@ def checkpoint(nets, history, args):
 
 
 def create_optimizers(nets, args):
-    (net_encoder, net_decoder_1, net_decoder_2, crit1, crit2) = nets
+    (net_encoder, net_decoder_1, net_decoder_2, style, crit1, crit2) = nets
     optimizer_encoder = torch.optim.SGD(
         net_encoder.parameters(),
         lr=args.lr_encoder,
@@ -375,7 +375,10 @@ def main(args):
     net_decoder_1 = builder.build_decoder(weights=args.weights_decoder)
     net_decoder_2 = builder.build_decoder(arch='c1',num_class=3, use_softmax=False,
                                           weights=args.weights_recon)
-
+    
+    # Style application module
+    style = WhitenedNoise(10)
+    
     if args.weighted_class:
         crit1 = nn.NLLLoss(ignore_index=-1, weight=args.class_weight)
     else:
@@ -419,7 +422,7 @@ def main(args):
         net_decoder_2 = nn.DataParallel(net_decoder_2,
                                         device_ids=range(args.num_gpus))
 
-    nets = (net_encoder, net_decoder_1, net_decoder_2, crit1, crit2)
+    nets = (net_encoder, net_decoder_1, net_decoder_2, style, crit1, crit2)
     for net in nets:
         net.cuda()
 
@@ -451,16 +454,16 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Model related arguments
-    parser.add_argument('--id', default='baseline',
+    parser.add_argument('--id', default='WhitenedNoise10',
                         help="a name for identifying the experiment")
     parser.add_argument('--weights_encoder',
-                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/r18_pretrained.pth',
+                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/encoder_GTA.pth',
                         help="weights to initialize encoder")
     parser.add_argument('--weights_decoder',
-                        default='',
+                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/decoder_1_GTA.pth',
                         help="weights to initialize segmentation branch")
     parser.add_argument('--weights_recon',
-                        default='',
+                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/decoder_2_GTA.pth',
                         help="weights to initialize reconstruction branch")
 
     # Path related arguments
@@ -478,12 +481,12 @@ if __name__ == '__main__':
                         help='input batch size')
     parser.add_argument('--batch_size_per_gpu_eval', default=1, type=int,
                         help='eval batch size')
-    parser.add_argument('--num_epoch', default=20, type=int,
+    parser.add_argument('--num_epoch', default=3, type=int,
                         help='epochs to train for')
 
     parser.add_argument('--optim', default='SGD', help='optimizer')
     parser.add_argument('--lr_encoder', default=1e-3, type=float, help='LR')
-    parser.add_argument('--lr_decoder', default=1e-2, type=float, help='LR')
+    parser.add_argument('--lr_decoder', default=1e-3, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
     parser.add_argument('--beta', default=0.1, type=float,

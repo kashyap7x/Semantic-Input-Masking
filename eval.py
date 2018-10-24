@@ -223,7 +223,7 @@ def main(args):
     crit2 = nn.MSELoss()
     
     # Style application module
-    style = WhitenedNoise(100)
+    style = WhitenedNoise(10)
     
     # Dataset and Loader
     dataset_train = GTA(root=args.root_gta, cropSize=args.imgSize, is_train=1)
@@ -272,24 +272,14 @@ def main(args):
 
     # eval
     evaluate(nets, loader_val, loader_val_2, history, 0, args)
-
     print('Evaluation Done!')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Model related arguments
-    parser.add_argument('--id', default='baseline',
+    parser.add_argument('--id', default='WhitenedNoise10',
                         help="a name for identifying the experiment")
-    parser.add_argument('--weights_encoder',
-                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/r18_pretrained.pth',
-                        help="weights to initialize encoder")
-    parser.add_argument('--weights_decoder',
-                        default='',
-                        help="weights to initialize segmentation branch")
-    parser.add_argument('--weights_recon',
-                        default='',
-                        help="weights to initialize reconstruction branch")
     parser.add_argument('--suffix', default='_best_mIoU.pth',
                         help="which snapshot to load")
 
@@ -304,26 +294,8 @@ if __name__ == '__main__':
     # optimization related arguments
     parser.add_argument('--num_gpus', default=3, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=6, type=int,
-                        help='input batch size')
     parser.add_argument('--batch_size_per_gpu_eval', default=1, type=int,
                         help='eval batch size')
-    parser.add_argument('--num_epoch', default=20, type=int,
-                        help='epochs to train for')
-
-    parser.add_argument('--optim', default='SGD', help='optimizer')
-    parser.add_argument('--lr_encoder', default=1e-3, type=float, help='LR')
-    parser.add_argument('--lr_decoder', default=1e-2, type=float, help='LR')
-    parser.add_argument('--lr_pow', default=0.9, type=float,
-                        help='power in poly to drop LR')
-    parser.add_argument('--beta', default=0.1, type=float,
-                        help='weight of the reconstruction loss')
-    parser.add_argument('--beta1', default=0.9, type=float,
-                        help='momentum for sgd, beta1 for adam')
-    parser.add_argument('--weight_decay', default=1e-4, type=float,
-                        help='weights regularizer')
-    parser.add_argument('--fix_bn', default=0, type=int,
-                        help='fix bn params')
 
     # Data related arguments
     parser.add_argument('--num_val', default=-1, type=int,
@@ -332,57 +304,37 @@ if __name__ == '__main__':
                         help='number of classes')
     parser.add_argument('--workers', default=4, type=int,
                         help='number of data loading workers')
-    parser.add_argument('--imgSize', default=720, type=int,
-                        help='input crop size for training')
 
     # Misc arguments
     parser.add_argument('--seed', default=1337, type=int, help='manual seed')
-    # Specify checkpoint directory
+    # Specify visualization directory
     parser.add_argument('--ckpt', default='./ckpt/ResNet',
                         help='folder to output checkpoints')
     parser.add_argument('--vis', default='./vis',
                         help='folder to output visualization during training')
     parser.add_argument('--vis_recon', default='./vis_recon',
                         help='folder to output visualization of reconstruction during training')
-    parser.add_argument('--disp_iter', type=int, default=20,
-                        help='frequency to display')
-    parser.add_argument('--eval_epoch', type=int, default=1,
-                        help='frequency to evaluate')
-
-    # Mode select
-    parser.add_argument('--weighted_class', default=True, type=bool, help='set True to use weighted loss')
 
     args = parser.parse_args()
     print("Input arguments:")
     for key, val in vars(args).items():
         print("{:16} {}".format(key, val))
 
-    args.batch_size = args.num_gpus * args.batch_size_per_gpu
     args.batch_size_eval = args.batch_size_per_gpu_eval
 
-    # Specify class weights to evaluate loss
-
-    if args.weighted_class:
-        args.enhanced_weight = 2.0
-        args.class_weight = np.ones([19], dtype=np.float32)
-        enhance_class = [1, 3, 4, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18]
-        args.class_weight[enhance_class] = args.enhanced_weight
-        args.class_weight = torch.from_numpy(args.class_weight.astype(np.float32))
-
-    args.id = 'baseline-ngpus3-batchSize18-imgSize720-lr_encoder0.001-lr_decoder0.01-epoch20-decay0.0001-beta0.1-weighted2.0[1, 3, 4, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18]'
+    model_id = 'baseline-ngpus3-batchSize18-imgSize720-lr_encoder0.001-lr_decoder0.01-epoch20-decay0.0001-beta0.1-weighted2.0[1, 3, 4, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18]'
 
     print(args)
 
-    args.weights_encoder = os.path.join(args.ckpt, args.id,
+    args.weights_encoder = os.path.join(args.ckpt, model_id,
                                         'encoder' + args.suffix)
-    args.weights_decoder_1 = os.path.join(args.ckpt, args.id,
+    args.weights_decoder_1 = os.path.join(args.ckpt, model_id,
                                           'decoder_1' + args.suffix)
-    args.weights_decoder_2 = os.path.join(args.ckpt, args.id,
+    args.weights_decoder_2 = os.path.join(args.ckpt, model_id,
                                           'decoder_2' + args.suffix)
     
-    args.id = 'whitenoise100'
-    args.vis = os.path.join(args.vis, args.id)
-    args.vis_recon = os.path.join(args.vis_recon, args.id)
+    args.vis = os.path.join(args.vis, args.id, model_id)
+    args.vis_recon = os.path.join(args.vis_recon, args.id, model_id)
     
     if not os.path.exists(args.vis):
         os.makedirs(args.vis)
