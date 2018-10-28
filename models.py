@@ -1,15 +1,13 @@
 import torch
 import torch.nn as nn
-import resnet
+import math
 from lib.nn import SynchronizedBatchNorm2d
 
 
 class ModelBuilder():
     def build_encoder(self, arch='resnet', weights=''):
         if arch == 'resnet':
-            net_encoder = ResnetEncoder(resnet.resnet18())
-        elif arch == 'vgg':
-            net_encoder = VGGEncoder()
+            net_encoder = ResnetEncoder(resnet18())
         if len(weights) > 0:
             net_encoder.load_state_dict(
                 torch.load(weights, map_location=lambda storage, loc: storage))
@@ -20,225 +18,10 @@ class ModelBuilder():
             net_decoder = C1Decoder(num_class, use_softmax)
         elif arch == 'ppm':
             net_decoder = PPMDecoder(num_class, use_softmax)
-        elif arch == 'vgg':
-            net_decoder = VGGDecoder(num_class, use_softmax)
         if len(weights) > 0:
             pretrained_dict = torch.load(weights, map_location=lambda storage, loc: storage)
             net_decoder.load_state_dict(pretrained_dict, strict=False)
         return net_decoder
-
-
-class VGGEncoder(nn.Module):
-    def __init__(self):
-        super(VGGEncoder, self).__init__()
-
-        # 224 x 224
-        self.conv0 = nn.Conv2d(3, 3, 1, 1, 0)
-
-        self.pad1_1 = nn.ReflectionPad2d((1, 1, 1, 1))
-        # 226 x 226
-        self.conv1_1 = nn.Conv2d(3, 64, 3, 1, 0)
-        self.relu1_1 = nn.ReLU(inplace=True)
-        # 224 x 224
-
-        self.pad1_2 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv1_2 = nn.Conv2d(64, 64, 3, 1, 0)
-        self.relu1_2 = nn.ReLU(inplace=True)
-        # 224 x 224
-        self.maxpool1 = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
-        # 112 x 112
-
-        self.pad2_1 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv2_1 = nn.Conv2d(64, 128, 3, 1, 0)
-        self.relu2_1 = nn.ReLU(inplace=True)
-        # 112 x 112
-
-        self.pad2_2 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv2_2 = nn.Conv2d(128, 128, 3, 1, 0)
-        self.relu2_2 = nn.ReLU(inplace=True)
-        # 112 x 112
-
-        self.maxpool2 = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
-        # 56 x 56
-
-        self.pad3_1 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv3_1 = nn.Conv2d(128, 256, 3, 1, 0)
-        self.relu3_1 = nn.ReLU(inplace=True)
-        # 56 x 56
-
-        self.pad3_2 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv3_2 = nn.Conv2d(256, 256, 3, 1, 0)
-        self.relu3_2 = nn.ReLU(inplace=True)
-        # 56 x 56
-
-        self.pad3_3 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv3_3 = nn.Conv2d(256, 256, 3, 1, 0)
-        self.relu3_3 = nn.ReLU(inplace=True)
-        # 56 x 56
-
-        self.pad3_4 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv3_4 = nn.Conv2d(256, 256, 3, 1, 0)
-        self.relu3_4 = nn.ReLU(inplace=True)
-        # 56 x 56
-
-        self.maxpool3 = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
-        # 28 x 28
-
-        self.pad4_1 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv4_1 = nn.Conv2d(256, 512, 3, 1, 0)
-        self.relu4_1 = nn.ReLU(inplace=True)
-        # 28 x 28
-
-    def forward(self, x):
-        out = self.conv0(x)
-
-        out = self.pad1_1(out)
-        out = self.conv1_1(out)
-        out = self.relu1_1(out)
-
-        out = self.pad1_2(out)
-        out = self.conv1_2(out)
-        pool1 = self.relu1_2(out)
-
-        out, pool1_idx = self.maxpool1(pool1)
-
-        out = self.pad2_1(out)
-        out = self.conv2_1(out)
-        out = self.relu2_1(out)
-
-        out = self.pad2_2(out)
-        out = self.conv2_2(out)
-        pool2 = self.relu2_2(out)
-
-        out, pool2_idx = self.maxpool2(pool2)
-
-        out = self.pad3_1(out)
-        out = self.conv3_1(out)
-        out = self.relu3_1(out)
-
-        out = self.pad3_2(out)
-        out = self.conv3_2(out)
-        out = self.relu3_2(out)
-
-        out = self.pad3_3(out)
-        out = self.conv3_3(out)
-        out = self.relu3_3(out)
-
-        out = self.pad3_4(out)
-        out = self.conv3_4(out)
-        pool3 = self.relu3_4(out)
-        out, pool3_idx = self.maxpool3(pool3)
-
-        out = self.pad4_1(out)
-        out = self.conv4_1(out)
-        out = self.relu4_1(out)
-
-        return out, pool1_idx, pool2_idx, pool3_idx
-
-
-class VGGDecoder(nn.Module):
-    def __init__(self, num_class, use_softmax):
-        super(VGGDecoder, self).__init__()
-        self.num_class = num_class
-        self.use_softmax = use_softmax
-
-        self.pad4_1 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv4_1 = nn.Conv2d(512, 256, 3, 1, 0)
-        self.relu4_1 = nn.ReLU(inplace=True)
-        # 28 x 28
-
-        self.unpool3 = nn.MaxUnpool2d(kernel_size=2, stride=2)
-        # 56 x 56
-
-        self.pad3_4 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv3_4 = nn.Conv2d(256, 256, 3, 1, 0)
-        self.relu3_4 = nn.ReLU(inplace=True)
-        # 56 x 56
-
-        self.pad3_3 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv3_3 = nn.Conv2d(256, 256, 3, 1, 0)
-        self.relu3_3 = nn.ReLU(inplace=True)
-        # 56 x 56
-
-        self.pad3_2 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv3_2 = nn.Conv2d(256, 256, 3, 1, 0)
-        self.relu3_2 = nn.ReLU(inplace=True)
-        # 56 x 56
-
-        self.pad3_1 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv3_1 = nn.Conv2d(256, 128, 3, 1, 0)
-        self.relu3_1 = nn.ReLU(inplace=True)
-        # 56 x 56
-
-        self.unpool2 = nn.MaxUnpool2d(kernel_size=2, stride=2)
-        # 112 x 112
-
-        self.pad2_2 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv2_2 = nn.Conv2d(128, 128, 3, 1, 0)
-        self.relu2_2 = nn.ReLU(inplace=True)
-        # 112 x 112
-
-        self.pad2_1 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv2_1 = nn.Conv2d(128, 64, 3, 1, 0)
-        self.relu2_1 = nn.ReLU(inplace=True)
-        # 112 x 112
-
-        self.unpool1 = nn.MaxUnpool2d(kernel_size=2, stride=2)
-        # 224 x 224
-
-        self.pad1_2 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv1_2 = nn.Conv2d(64, 64, 3, 1, 0)
-        self.relu1_2 = nn.ReLU(inplace=True)
-        # 224 x 224
-
-        self.pad1_1 = nn.ReflectionPad2d((1, 1, 1, 1))
-        self.conv_out = nn.Conv2d(64, self.num_class, 3, 1, 0)
-
-    def forward(self, x, pool1_idx=None, pool2_idx=None, pool3_idx=None):
-        out = x
-
-        out = self.pad4_1(out)
-        out = self.conv4_1(out)
-        out = self.relu4_1(out)
-        out = self.unpool3(out, pool3_idx)
-
-        out = self.pad3_4(out)
-        out = self.conv3_4(out)
-        out = self.relu3_4(out)
-
-        out = self.pad3_3(out)
-        out = self.conv3_3(out)
-        out = self.relu3_3(out)
-
-        out = self.pad3_2(out)
-        out = self.conv3_2(out)
-        out = self.relu3_2(out)
-
-        out = self.pad3_1(out)
-        out = self.conv3_1(out)
-        out = self.relu3_1(out)
-        out = self.unpool2(out, pool2_idx)
-
-        out = self.pad2_2(out)
-        out = self.conv2_2(out)
-        out = self.relu2_2(out)
-
-        out = self.pad2_1(out)
-        out = self.conv2_1(out)
-        out = self.relu2_1(out)
-        out = self.unpool1(out, pool1_idx)
-
-        out = self.pad1_2(out)
-        out = self.conv1_2(out)
-        out = self.relu1_2(out)
-
-        out = self.pad1_1(out)
-        out = self.conv_out(out)
-
-        if self.use_softmax:
-            out = nn.functional.log_softmax(out, dim=1)
-
-        return out
 
 
 class ResnetEncoder(nn.Module):
@@ -367,103 +150,110 @@ class PPMDecoder(nn.Module):
         return x
 
 
-class Whitening(nn.Module):
-    def __init__(self):
-        super(Whitening, self).__init__()
-        
-    def forward(self, cont):
-        cont_c, cont_h, cont_w = cont.size(0), cont.size(1), cont.size(2)
-        cont_feat = cont.view(cont_c, -1).clone()
-        
-        cFSize = cont_feat.size()
-        c_mean = torch.mean(cont_feat, 1)  # c x (h x w)
-        c_mean = c_mean.unsqueeze(1).expand_as(cont_feat)
-        cont_feat = cont_feat - c_mean
-        
-        iden = torch.eye(cFSize[0])  # .double()
-        iden = iden.cuda()
-        
-        contentConv = torch.mm(cont_feat, cont_feat.t()).div(cFSize[1] - 1) + iden
-        c_u, c_e, c_v = torch.svd(contentConv, some=False)
-        
-        k_c = cFSize[0]
-        for i in range(cFSize[0] - 1, -1, -1):
-            if c_e[i] >= 0.00001:
-                k_c = i + 1
-                break
-        
-        c_d = (c_e[0:k_c]).pow(-0.5)
-        step1 = torch.mm(c_v[:, 0:k_c], torch.diag(c_d))
-        step2 = torch.mm(step1, (c_v[:, 0:k_c].t()))
-        whiten_cF = torch.mm(step2, cont_feat)
-        
-        whiten_cF = whiten_cF.view_as(cont)
-        
-        return whiten_cF
-    
+def conv3x3(in_planes, out_planes, stride=1):
+    "3x3 convolution with padding"
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
 
-class AdditiveNoise(nn.Module):
-    def __init__(self, var):
-        super(AdditiveNoise, self).__init__()
-        self.var = var
-        
-    def forward(self, cont):
-        noise = torch.randn(cont.size())*self.var
-        noise = noise.cuda()
-        cont_feat = cont + noise
-        
-        return cont_feat
-    
 
-class WhitenedNoise(nn.Module):
-    def __init__(self, var):
-        super(WhitenedNoise, self).__init__()
-        self.var = var
-        
-    def forward(self, cont):
-        cont_c, cont_h, cont_w = cont.size(0), cont.size(1), cont.size(2)
-        cont_feat = cont.view(cont_c, -1).clone()
-        
-        cFSize = cont_feat.size()
-        c_mean = torch.mean(cont_feat, 1)  # c x (h x w)
-        c_mean = c_mean.unsqueeze(1).expand_as(cont_feat)
-        cont_feat = cont_feat - c_mean
-        
-        iden = torch.eye(cFSize[0])  # .double()
-        iden = iden.cuda()
-        
-        contentConv = torch.mm(cont_feat, cont_feat.t()).div(cFSize[1] - 1) + iden
-        c_u, c_e, c_v = torch.svd(contentConv, some=False)
-        
-        k_c = cFSize[0]
-        for i in range(cFSize[0] - 1, -1, -1):
-            if c_e[i] >= 0.00001:
-                k_c = i + 1
-                break
-        
-        c_d = (c_e[0:k_c]).pow(-0.5)
-        step1 = torch.mm(c_v[:, 0:k_c], torch.diag(c_d))
-        step2 = torch.mm(step1, (c_v[:, 0:k_c].t()))
-        whiten_cF = torch.mm(step2, cont_feat)
-        
-        noise = torch.randn(cont_feat.size())*self.var
-        styl_feat = noise.cuda()
-        sFSize = styl_feat.size()
-        s_mean = torch.mean(styl_feat, 1)
-        styl_feat = styl_feat - s_mean.unsqueeze(1).expand_as(styl_feat)
-        styleConv = torch.mm(styl_feat, styl_feat.t()).div(sFSize[1] - 1)
-        s_u, s_e, s_v = torch.svd(styleConv, some=False)
-        
-        k_s = sFSize[0]
-        for i in range(sFSize[0] - 1, -1, -1):
-            if s_e[i] >= 0.00001:
-                k_s = i + 1
-                break
-        
-        s_d = (s_e[0:k_s]).pow(0.5)
-        targetFeature = torch.mm(torch.mm(torch.mm(s_v[:, 0:k_s], torch.diag(s_d)), (s_v[:, 0:k_s].t())), whiten_cF)
-        targetFeature = targetFeature + s_mean.unsqueeze(1).expand_as(targetFeature)
-        
-        targetFeature = targetFeature.view_as(cont)
-        
-        return targetFeature
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(BasicBlock, self).__init__()
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = SynchronizedBatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+        self.bn2 = SynchronizedBatchNorm2d(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        return out
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, block, layers, num_classes=1000):
+        self.inplanes = 128
+        super(ResNet, self).__init__()
+        self.conv1 = conv3x3(3, 64, stride=2)
+        self.bn1 = SynchronizedBatchNorm2d(64)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(64, 64)
+        self.bn2 = SynchronizedBatchNorm2d(64)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.conv3 = conv3x3(64, 128)
+        self.bn3 = SynchronizedBatchNorm2d(128)
+        self.relu3 = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.avgpool = nn.AvgPool2d(7, stride=1)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(self.inplanes, planes * block.expansion,
+                          kernel_size=1, stride=stride, bias=False),
+                SynchronizedBatchNorm2d(planes * block.expansion),
+            )
+
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.relu1(self.bn1(self.conv1(x)))
+        x = self.relu2(self.bn2(self.conv2(x)))
+        x = self.relu3(self.bn3(self.conv3(x)))
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+
+        return x
+
+
+def resnet18(**kwargs):
+    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+    return model

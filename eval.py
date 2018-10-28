@@ -12,41 +12,18 @@ from torch.autograd import Variable
 from scipy.io import loadmat
 from scipy.misc import imresize, imsave
 # Our libs
-from dataset import GTA, CityScapes, BDD
-from models import ModelBuilder, Whitening, AdditiveNoise, WhitenedNoise
+from dataset import GTA, CityScapes, BDD, trainID2Class
+from models import ModelBuilder
 from utils import AverageMeter, colorEncode, accuracy, make_variable, intersectionAndUnion
 
 import matplotlib
-
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-trainID2Class = {
-    0: 'road',
-    1: 'sidewalk',
-    2: 'building',
-    3: 'wall',
-    4: 'fence',
-    5: 'pole',
-    6: 'traffic light',
-    7: 'traffic sign',
-    8: 'vegetation',
-    9: 'terrain',
-    10: 'sky',
-    11: 'person',
-    12: 'rider',
-    13: 'car',
-    14: 'truck',
-    15: 'bus',
-    16: 'train',
-    17: 'motorcycle',
-    18: 'bicycle'
-}
-
 
 def forward_with_loss(nets, batch_data, is_train=True):
-    (net_encoder, net_decoder_1, net_decoder_2, style, crit1, crit2) = nets
+    (net_encoder, net_decoder, crit) = nets
     (imgs, segs, infos) = batch_data
 
     # feed input data
@@ -62,37 +39,11 @@ def forward_with_loss(nets, batch_data, is_train=True):
     label_seg = label_seg.cuda()
 
     # forward
-    out = style(net_encoder(input_img))
-    pred_featuremap_1 = net_decoder_1(out)
-    pred_featuremap_2 = net_decoder_2(out)
+    pred_featuremap = net_decoder(net_encoder(input_img))
 
-    err = crit1(pred_featuremap_1, label_seg) + args.beta * crit2(pred_featuremap_2, input_img)
+    err = crit(pred_featuremap, label_seg)
 
-    return pred_featuremap_1, pred_featuremap_2, err
-
-
-def visualize_recon(batch_data, recons, args):
-    (imgs, segs, infos) = batch_data
-
-    for j in range(len(infos)):
-        img = imgs[j].clone()
-        for t, m, s in zip(img,
-                           [0.485, 0.456, 0.406],
-                           [0.229, 0.224, 0.225]):
-            t.mul_(s).add_(m)
-        img = (img.numpy().transpose((1, 2, 0)) * 255).astype(np.uint8)
-
-        recon = recons[j].clone()
-        for t, m, s in zip(recon,
-                           [0.485, 0.456, 0.406],
-                           [0.229, 0.224, 0.225]):
-            t.mul_(s).add_(m)
-        recon = (recon.cpu().detach().numpy().transpose((1, 2, 0)) * 255).astype(np.uint8)
-
-        im_vis = np.concatenate((img, recon),
-                                axis=1).astype(np.uint8)
-        imsave(os.path.join(args.vis_recon,
-                            infos[j].replace('/', '_')), im_vis)
+    return pred_featuremap, err
 
 
 def visualize(batch_data, pred, args):
@@ -142,7 +93,7 @@ def evaluate(nets, loader, loader_2, history, epoch, args, isVis=True):
     for i, batch_data in enumerate(loader):
         # forward pass
         torch.cuda.empty_cache()
-        pred, recon, err = forward_with_loss(nets, batch_data, is_train=False)
+        pred, err = forward_with_loss(nets, batch_data, is_train=False)
         loss_meter.update(err.data.item())
         print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
 
@@ -158,13 +109,11 @@ def evaluate(nets, loader, loader_2, history, epoch, args, isVis=True):
         # visualization
         if isVis:
             visualize(batch_data, pred, args)
-            visualize_recon(batch_data, recon, args)
-
 
     for i, batch_data in enumerate(loader_2):
         # forward pass
         torch.cuda.empty_cache()
-        pred, recon, err = forward_with_loss(nets, batch_data, is_train=False)
+        pred, err = forward_with_loss(nets, batch_data, is_train=False)
         loss_meter_2.update(err.data.item())
         print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
 
@@ -179,7 +128,6 @@ def evaluate(nets, loader, loader_2, history, epoch, args, isVis=True):
 
         # visualization
         if isVis:
-            visualize_recon(batch_data, recon, args)
             visualize(batch_data, pred, args)
 
     iou = intersection_meter.sum / (union_meter.sum + 1e-10)
@@ -212,32 +160,19 @@ def main(args):
     # Network Builders
     builder = ModelBuilder()
     net_encoder = builder.build_encoder(weights=args.weights_encoder)
-    net_decoder_1 = builder.build_decoder(weights=args.weights_decoder_1)
-    net_decoder_2 = builder.build_decoder(arch='c1', num_class=3, use_softmax=False,
-                                          weights=args.weights_decoder_2)
+    net_decoder = builder.build_decoder(weights=args.weights_decoder)
 
     if args.weighted_class:
-        crit1 = nn.NLLLoss(ignore_index=-1, weight=args.class_weight)
+        crit = nn.NLLLoss(ignore_index=-1, weight=args.class_weight)
     else:
-        crit1 = nn.NLLLoss(ignore_index=-1)
-    crit2 = nn.MSELoss()
-    
-    # Style application module
-    style = WhitenedNoise(10)
+        crit = nn.NLLLoss(ignore_index=-1)
     
     # Dataset and Loader
-    dataset_train = GTA(root=args.root_gta, cropSize=args.imgSize, is_train=1)
     dataset_val = CityScapes('val', root=args.root_cityscapes, cropSize=args.imgSize,
                              max_sample=args.num_val, is_train=0)
     dataset_val_2 = BDD('val', root=args.root_bdd, cropSize=args.imgSize,
                         max_sample=args.num_val, is_train=0)
 
-    loader_train = torch.utils.data.DataLoader(
-        dataset_train,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=int(args.workers),
-        drop_last=True)
     loader_val = torch.utils.data.DataLoader(
         dataset_val,
         batch_size=args.batch_size_eval,
@@ -250,19 +185,16 @@ def main(args):
         shuffle=False,
         num_workers=int(args.workers),
         drop_last=True)
-    args.epoch_iters = int(len(dataset_train) / args.batch_size)
-    print('1 Epoch = {} iters'.format(args.epoch_iters))
+
 
     # load nets into gpu
     if args.num_gpus > 1:
         net_encoder = nn.DataParallel(net_encoder,
                                       device_ids=range(args.num_gpus))
-        net_decoder_1 = nn.DataParallel(net_decoder_1,
-                                        device_ids=range(args.num_gpus))
-        net_decoder_2 = nn.DataParallel(net_decoder_2,
+        net_decoder = nn.DataParallel(net_decoder,
                                         device_ids=range(args.num_gpus))
 
-    nets = (net_encoder, net_decoder_1, net_decoder_2, style, crit1, crit2)
+    nets = (net_encoder, net_decoder, crit)
     for net in nets:
         net.cuda()
 
@@ -278,14 +210,12 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Model related arguments
-    parser.add_argument('--id', default='WhitenedNoise10',
+    parser.add_argument('--id', default='baseline',
                         help="a name for identifying the experiment")
     parser.add_argument('--suffix', default='_best_mIoU.pth',
                         help="which snapshot to load")
 
     # Path related arguments
-    parser.add_argument('--root_gta',
-                        default='/home/selfdriving/datasets/GTA_full')
     parser.add_argument('--root_cityscapes',
                         default='/home/selfdriving/datasets/cityscapes_full')
     parser.add_argument('--root_bdd',
@@ -312,8 +242,6 @@ if __name__ == '__main__':
                         help='folder to output checkpoints')
     parser.add_argument('--vis', default='./vis',
                         help='folder to output visualization during training')
-    parser.add_argument('--vis_recon', default='./vis_recon',
-                        help='folder to output visualization of reconstruction during training')
 
     args = parser.parse_args()
     print("Input arguments:")
@@ -328,18 +256,13 @@ if __name__ == '__main__':
 
     args.weights_encoder = os.path.join(args.ckpt, model_id,
                                         'encoder' + args.suffix)
-    args.weights_decoder_1 = os.path.join(args.ckpt, model_id,
-                                          'decoder_1' + args.suffix)
-    args.weights_decoder_2 = os.path.join(args.ckpt, model_id,
-                                          'decoder_2' + args.suffix)
+    args.weights_decoder = os.path.join(args.ckpt, model_id,
+                                          'decoder' + args.suffix)
     
     args.vis = os.path.join(args.vis, args.id, model_id)
-    args.vis_recon = os.path.join(args.vis_recon, args.id, model_id)
     
     if not os.path.exists(args.vis):
         os.makedirs(args.vis)
-    if not os.path.exists(args.vis_recon):
-        os.makedirs(args.vis_recon)
         
     random.seed(args.seed)
     torch.manual_seed(args.seed)
