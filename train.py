@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 
 def forward_with_loss(nets, batch_data, is_train=True):
-    (net_encoder, net_decoder, crit) = nets
+    (net_encoder, net_decoder_1, net_decoder_2, crit) = nets
     (imgs, segs, infos) = batch_data
 
     # feed input data
@@ -39,11 +39,13 @@ def forward_with_loss(nets, batch_data, is_train=True):
     label_seg = label_seg.cuda()
 
     # forward
-    pred_featuremap = net_decoder(net_encoder(input_img))
+    conv_feat = net_encoder(input_img[:,:3,:,:])
+    pred_featuremap_1 = net_decoder_1(conv_feat)
+    pred_featuremap_2 = net_decoder_2(torch.cat([pred_featuremap_1,input_img[:,3:,:,:]],1))
     
-    err = crit(pred_featuremap, label_seg)
+    err = crit(pred_featuremap_2, label_seg)
     
-    return pred_featuremap, err
+    return pred_featuremap_2, err
 
 
 def visualize(batch_data, pred, args):
@@ -52,7 +54,7 @@ def visualize(batch_data, pred, args):
     for j in range(len(infos)):
         # get/recover image
         # img = imread(os.path.join(args.root_img, infos[j]))
-        img = imgs[j].clone()
+        img = imgs[j,:3,:,:].clone()
         for t, m, s in zip(img,
                            [0.485, 0.456, 0.406],
                            [0.229, 0.224, 0.225]):
@@ -201,8 +203,8 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
           .format(epoch, loss_meter_2.average(), iou.mean(), acc_meter_2.average() * 100))
 
     history['val_2']['epoch'].append(epoch)
-    history['val_2']['err'].append(loss_meter.average())
-    history['val_2']['acc'].append(acc_meter.average())
+    history['val_2']['err'].append(loss_meter_2.average())
+    history['val_2']['acc'].append(acc_meter_2.average())
     history['val_2']['mIoU'].append(iou.mean())
 
     # Plot figure
@@ -239,7 +241,7 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
 
 def checkpoint(nets, history, args):
     print('Saving checkpoints...')
-    (net_encoder, net_decoder, crit) = nets
+    (net_encoder, net_decoder_1, net_decoder_2, crit) = nets
     suffix_latest = 'latest.pth'
     suffix_best_acc = 'best_acc.pth'
     suffix_best_mIoU = 'best_mIoU.pth'
@@ -247,19 +249,23 @@ def checkpoint(nets, history, args):
 
     if args.num_gpus > 1:
         dict_encoder = net_encoder.module.state_dict()
-        dict_decoder = net_decoder.module.state_dict()
+        dict_decoder_1 = net_decoder_1.module.state_dict()
+        dict_decoder_2 = net_decoder_2.module.state_dict()
 
     else:
         dict_encoder = net_encoder.state_dict()
-        dict_decoder = net_decoder.state_dict()
+        dict_decoder_1 = net_decoder_1.state_dict()
+        dict_decoder_2 = net_decoder_2.state_dict()
 
 
     torch.save(history,
                '{}/history_{}'.format(args.ckpt, suffix_latest))
     torch.save(dict_encoder,
                '{}/encoder_{}'.format(args.ckpt, suffix_latest))
-    torch.save(dict_decoder,
-               '{}/decoder_{}'.format(args.ckpt, suffix_latest))
+    torch.save(dict_decoder_1,
+               '{}/decoder_1_{}'.format(args.ckpt, suffix_latest))
+    torch.save(dict_decoder_2,
+               '{}/decoder_2_{}'.format(args.ckpt, suffix_latest))
 
     cur_err = history['val']['err'][-1]
     cur_acc = history['val']['acc'][-1]
@@ -273,8 +279,10 @@ def checkpoint(nets, history, args):
                    '{}/history_{}'.format(args.ckpt, suffix_best_acc))
         torch.save(dict_encoder,
                    '{}/encoder_{}'.format(args.ckpt, suffix_best_acc))
-        torch.save(dict_decoder,
-                   '{}/decoder_{}'.format(args.ckpt, suffix_best_acc))
+        torch.save(dict_decoder_1,
+                   '{}/decoder_1_{}'.format(args.ckpt, suffix_best_acc))
+        torch.save(dict_decoder_2,
+                   '{}/decoder_2_{}'.format(args.ckpt, suffix_best_acc))
 
     if cur_mIoU > args.best_mIoU:
         # save best accuracy instead
@@ -284,8 +292,10 @@ def checkpoint(nets, history, args):
                    '{}/history_{}'.format(args.ckpt, suffix_best_mIoU))
         torch.save(dict_encoder,
                    '{}/encoder_{}'.format(args.ckpt, suffix_best_mIoU))
-        torch.save(dict_decoder,
-                   '{}/decoder_{}'.format(args.ckpt, suffix_best_mIoU))
+        torch.save(dict_decoder_1,
+                   '{}/decoder_1_{}'.format(args.ckpt, suffix_best_mIoU))
+        torch.save(dict_decoder_2,
+                   '{}/decoder_2_{}'.format(args.ckpt, suffix_best_mIoU))
 
     if cur_err < args.best_err:
         args.best_err = cur_err
@@ -293,24 +303,31 @@ def checkpoint(nets, history, args):
                    '{}/history_{}'.format(args.ckpt, suffix_best_err))
         torch.save(dict_encoder,
                    '{}/encoder_{}'.format(args.ckpt, suffix_best_err))
-        torch.save(dict_decoder,
-                   '{}/decoder_{}'.format(args.ckpt, suffix_best_err))
+        torch.save(dict_decoder_1,
+                   '{}/decoder_1_{}'.format(args.ckpt, suffix_best_err))
+        torch.save(dict_decoder_2,
+                   '{}/decoder_2_{}'.format(args.ckpt, suffix_best_err))
 
 
 def create_optimizers(nets, args):
-    (net_encoder, net_decoder, crit) = nets
+    (net_encoder, net_decoder_1, net_decoder_2, crit) = nets
     optimizer_encoder = torch.optim.SGD(
         net_encoder.parameters(),
         lr=args.lr_encoder,
         momentum=args.beta1,
         weight_decay=args.weight_decay)
-    optimizer_decoder = torch.optim.SGD(
-        net_decoder.parameters(),
+    optimizer_decoder_1 = torch.optim.SGD(
+        net_decoder_1.parameters(),
+        lr=args.lr_decoder,
+        momentum=args.beta1,
+        weight_decay=args.weight_decay)
+    optimizer_decoder_2 = torch.optim.SGD(
+        net_decoder_2.parameters(),
         lr=args.lr_decoder,
         momentum=args.beta1,
         weight_decay=args.weight_decay)
 
-    return (optimizer_encoder, optimizer_decoder)
+    return (optimizer_encoder, optimizer_decoder_1, optimizer_decoder_2)
 
 
 def adjust_learning_rate(optimizers, epoch, args):
@@ -318,10 +335,12 @@ def adjust_learning_rate(optimizers, epoch, args):
                  ** args.lr_pow
     args.lr_encoder *= drop_ratio
     args.lr_decoder *= drop_ratio
-    (optimizer_encoder, optimizer_decoder) = optimizers
+    (optimizer_encoder, optimizer_decoder_1, optimizer_decoder_2) = optimizers
     for param_group in optimizer_encoder.param_groups:
         param_group['lr'] = args.lr_encoder
-    for param_group in optimizer_decoder.param_groups:
+    for param_group in optimizer_decoder_1.param_groups:
+        param_group['lr'] = args.lr_decoder
+    for param_group in optimizer_decoder_2.param_groups:
         param_group['lr'] = args.lr_decoder
 
 
@@ -329,15 +348,16 @@ def main(args):
     # Network Builders
     builder = ModelBuilder()
     net_encoder = builder.build_encoder(weights=args.weights_encoder)
-    net_decoder = builder.build_decoder(weights=args.weights_decoder)
-    
+    net_decoder_1 = builder.build_decoder(weights=args.weights_decoder_1)
+    net_decoder_2 = builder.build_decoder(arch='c1',weights=args.weights_decoder_2)
+
     if args.weighted_class:
         crit = nn.NLLLoss(ignore_index=-1, weight=args.class_weight)
     else:
         crit = nn.NLLLoss(ignore_index=-1)
-
+    
     # Dataset and Loader
-    dataset_train = GTA(root=args.root_gta, cropSize=args.imgSize, is_train=0)
+    dataset_train = GTA(root=args.root_gta, cropSize=args.imgSize, is_train=1)
     dataset_val = CityScapes('val', root=args.root_cityscapes, cropSize=args.imgSize,
                              max_sample=args.num_val, is_train=0)
     dataset_val_2 = BDD('val', root=args.root_bdd, cropSize=args.imgSize,
@@ -368,10 +388,12 @@ def main(args):
     if args.num_gpus > 1:
         net_encoder = nn.DataParallel(net_encoder,
                                       device_ids=range(args.num_gpus))
-        net_decoder = nn.DataParallel(net_decoder,
+        net_decoder_1 = nn.DataParallel(net_decoder_1,
+                                        device_ids=range(args.num_gpus))
+        net_decoder_2 = nn.DataParallel(net_decoder_2,
                                         device_ids=range(args.num_gpus))
 
-    nets = (net_encoder, net_decoder, crit)
+    nets = (net_encoder, net_decoder_1, net_decoder_2, crit)
     for net in nets:
         net.cuda()
 
@@ -403,14 +425,17 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Model related arguments
-    parser.add_argument('--id', default='WhitenedNoise10',
+    parser.add_argument('--id', default='spatialrefine',
                         help="a name for identifying the experiment")
     parser.add_argument('--weights_encoder',
                         default='/home/selfdriving/kchitta/Style-Randomization/pretrained/encoder_GTA.pth',
                         help="weights to initialize encoder")
-    parser.add_argument('--weights_decoder',
+    parser.add_argument('--weights_decoder_1',
                         default='/home/selfdriving/kchitta/Style-Randomization/pretrained/decoder_1_GTA.pth',
                         help="weights to initialize segmentation branch")
+    parser.add_argument('--weights_decoder_2',
+                        default='',
+                        help="weights to initialize spatial refinement branch")
 
     # Path related arguments
     parser.add_argument('--root_gta',
@@ -423,7 +448,7 @@ if __name__ == '__main__':
     # optimization related arguments
     parser.add_argument('--num_gpus', default=3, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=3, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=6, type=int,
                         help='input batch size')
     parser.add_argument('--batch_size_per_gpu_eval', default=1, type=int,
                         help='eval batch size')
@@ -431,7 +456,7 @@ if __name__ == '__main__':
                         help='epochs to train for')
 
     parser.add_argument('--optim', default='SGD', help='optimizer')
-    parser.add_argument('--lr_encoder', default=1e-3, type=float, help='LR')
+    parser.add_argument('--lr_encoder', default=1e-4, type=float, help='LR')
     parser.add_argument('--lr_decoder', default=1e-3, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')

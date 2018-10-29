@@ -15,7 +15,7 @@ class ModelBuilder():
 
     def build_decoder(self, arch='ppm', num_class=19, use_softmax=True, weights=''):
         if arch == 'c1':
-            net_decoder = C1Decoder(num_class, use_softmax)
+            net_decoder = SpatialRefine(num_class, use_softmax)
         elif arch == 'ppm':
             net_decoder = PPMDecoder(num_class, use_softmax)
         if len(weights) > 0:
@@ -89,25 +89,6 @@ class ResnetEncoder(nn.Module):
         return x
 
 
-class C1Decoder(nn.Module):
-    def __init__(self, num_class=19, use_softmax=True):
-        super(C1Decoder, self).__init__()
-        self.use_softmax = use_softmax
-
-        # last conv
-        self.conv_last = nn.Conv2d(512, num_class, 1, 1, 0)
-
-    def forward(self, x):
-        input_size = x.size()
-        x = self.conv_last(x)
-        x = nn.functional.upsample(x, size=(input_size[2]*8, input_size[3]*8), mode='bilinear')
-
-        if self.use_softmax:
-            x = nn.functional.log_softmax(x, dim=1)
-
-        return x
-
-
 class PPMDecoder(nn.Module):
     def __init__(self, num_class=19, use_softmax=True, pool_scales=(1, 2, 3, 6)):
         super(PPMDecoder, self).__init__()
@@ -143,6 +124,23 @@ class PPMDecoder(nn.Module):
 
         x = self.conv_final(psp_out)
         x = nn.functional.upsample(x, size=(input_size[2]*8, input_size[3]*8), mode='bilinear')
+
+        if self.use_softmax:
+            x = nn.functional.log_softmax(x, dim=1)
+
+        return x
+
+
+class SpatialRefine(nn.Module):
+    def __init__(self, num_class=19, use_softmax=True):
+        super(SpatialRefine, self).__init__()
+        self.use_softmax = use_softmax
+
+        # last conv
+        self.conv_last = nn.Conv2d(num_class+2, num_class, 1, 1, 0)
+
+    def forward(self, x):
+        x = self.conv_last(x)
 
         if self.use_softmax:
             x = nn.functional.log_softmax(x, dim=1)

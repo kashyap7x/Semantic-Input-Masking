@@ -96,7 +96,15 @@ class GTA(torchdata.Dataset):
         num_sample = len(self.list_sample)
         assert num_sample > 0
         print('# samples: {}'.format(num_sample))
-
+    
+    def _add_xy_index_channels(self, img):
+        h_s = img.shape[0]
+        w_s = img.shape[1]
+        c_y_index = np.expand_dims(np.tile(np.arange(h_s),w_s).reshape(w_s,h_s).T,2)/(h_s-1)
+        c_x_index = np.tile(np.arange(w_s),h_s).T.reshape(h_s,w_s,1)/(w_s-1)
+        img_extended = np.concatenate([img,c_y_index,c_x_index],2).copy()
+        return img_extended
+    
     def _scale_and_crop(self, img, seg, cropSize, is_train):
         h_s, w_s = 720, 1312
         img_scale = imresize(img, (h_s, w_s), interp='bilinear')
@@ -133,9 +141,14 @@ class GTA(torchdata.Dataset):
             seg_copy[seg == k] = v
         seg = seg_copy
         
-        # random scale, crop, flip
+        # random scale, crop
         img, seg = self._scale_and_crop(img, seg,
                                         self.cropSize, self.is_train)
+        
+        # add spatial features
+        img = self._add_xy_index_channels(img)
+        
+        # random flip
         if self.is_train and random.choice([-1, 1]) > 0:
             img, seg = self._flip(img, seg)
 
@@ -178,7 +191,15 @@ class CityScapes(torchdata.Dataset):
         num_sample = len(self.list_sample)
         assert num_sample > 0
         print('# samples: {}'.format(num_sample))
-
+    
+    def _add_xy_index_channels(self, img):
+        h_s = img.shape[0]
+        w_s = img.shape[1]
+        c_y_index = np.expand_dims(np.tile(np.arange(h_s),w_s).reshape(w_s,h_s).T,2)/(h_s-1)
+        c_x_index = np.tile(np.arange(w_s),h_s).T.reshape(h_s,w_s,1)/(w_s-1)
+        img_extended = np.concatenate([img,c_y_index,c_x_index],2).copy()
+        return img_extended
+    
     def _scale_and_crop(self, img, seg, cropSize, is_train):
         h_s, w_s = 720, 1440
         img_scale = imresize(img, (h_s, w_s), interp='bilinear')
@@ -215,9 +236,14 @@ class CityScapes(torchdata.Dataset):
             seg_copy[seg == k] = v
         seg = seg_copy
 
-        # random scale, crop, flip
+        # random scale, crop
         img, seg = self._scale_and_crop(img, seg,
                                         self.cropSize, self.is_train)
+        
+        # add spatial features
+        img = self._add_xy_index_channels(img)
+        
+        # random flip
         if self.is_train and random.choice([-1, 1]) > 0:
             img, seg = self._flip(img, seg)
 
@@ -255,7 +281,15 @@ class BDD(torchdata.Dataset):
         num_sample = len(self.list_sample)
         assert num_sample > 0
         print('# samples: {}'.format(num_sample))
-
+    
+    def _add_xy_index_channels(self, img):
+        h_s = img.shape[0]
+        w_s = img.shape[1]
+        c_y_index = np.expand_dims(np.tile(np.arange(h_s),w_s).reshape(w_s,h_s).T,2)/(h_s-1)
+        c_x_index = np.tile(np.arange(w_s),h_s).T.reshape(h_s,w_s,1)/(w_s-1)
+        img_extended = np.concatenate([img,c_y_index,c_x_index],2).copy()
+        return img_extended
+    
     def _scale_and_crop(self, img, seg, cropSize, is_train):
         h_s, w_s = 720, 1280
         if img.shape[0] == h_s and img.shape[1] == w_s:
@@ -310,10 +344,16 @@ class BDD(torchdata.Dataset):
         for k, v in self.id_to_trainid.items():
             seg_copy[seg == k] = v
         seg = seg_copy
-
-        # random scale, crop, flip
+        
+        
+        # random scale, crop
         img, seg = self._scale_and_crop(img, seg,
                                         self.cropSize, self.is_train)
+        
+        # add spatial features
+        img = self._add_xy_index_channels(img)
+        
+        # random flip
         if self.is_train and random.choice([-1, 1]) > 0:
             img, seg = self._flip(img, seg)
 
