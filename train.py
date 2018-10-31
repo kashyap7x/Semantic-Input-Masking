@@ -41,39 +41,11 @@ def forward_with_loss(nets, batch_data, is_train=True):
     # forward
     conv_feat = net_encoder(input_img[:,:3,:,:])
     pred_featuremap_1 = net_decoder_1(conv_feat)
-    pred_featuremap_2 = net_decoder_2(torch.cat([pred_featuremap_1,input_img[:,3:,:,:]],1))
+    pred_featuremap_2 = net_decoder_2(pred_featuremap_1,input_img[:,3:,:,:])
     
     err = crit(pred_featuremap_2, label_seg)
     
     return pred_featuremap_2, err
-
-
-def visualize(batch_data, pred, args):
-    colors = loadmat('colormap.mat')['colors']
-    (imgs, segs, infos) = batch_data
-    for j in range(len(infos)):
-        # get/recover image
-        # img = imread(os.path.join(args.root_img, infos[j]))
-        img = imgs[j,:3,:,:].clone()
-        for t, m, s in zip(img,
-                           [0.485, 0.456, 0.406],
-                           [0.229, 0.224, 0.225]):
-            t.mul_(s).add_(m)
-        img = (img.numpy().transpose((1, 2, 0)) * 255).astype(np.uint8)
-
-        # segmentation
-        lab = segs[j].numpy()
-        lab_color = colorEncode(lab, colors)
-
-        # prediction
-        pred_ = np.argmax(pred.data.cpu()[j].numpy(), axis=0)
-        pred_color = colorEncode(pred_, colors)
-
-        # aggregate images and save
-        im_vis = np.concatenate((img, lab_color, pred_color),
-                                axis=1).astype(np.uint8)
-        imsave(os.path.join(args.vis,
-                            infos[j].replace('/', '_')), im_vis)
 
 
 # train one epoch
@@ -159,9 +131,6 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
         intersection_meter.update(intersection)
         union_meter.update(union)
 
-        # visualization
-        visualize(batch_data, pred, args)
-
     iou = intersection_meter.sum / (union_meter.sum + 1e-10)
     for i, _iou in enumerate(iou):
         print('class [{}], IoU: {}'.format(trainID2Class[i], _iou))
@@ -190,9 +159,6 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
                                                    args.num_class)
         intersection_meter_2.update(intersection)
         union_meter_2.update(union)
-
-        # visualization
-        visualize(batch_data, pred, args)
 
     iou = intersection_meter_2.sum / (union_meter_2.sum + 1e-10)
     for i, _iou in enumerate(iou):
@@ -359,9 +325,9 @@ def main(args):
     # Dataset and Loader
     dataset_train = GTA(root=args.root_gta, cropSize=args.imgSize, is_train=1)
     dataset_val = CityScapes('val', root=args.root_cityscapes, cropSize=args.imgSize,
-                             max_sample=args.num_val, is_train=0)
+                             max_sample=args.num_val, is_train=1)
     dataset_val_2 = BDD('val', root=args.root_bdd, cropSize=args.imgSize,
-                        max_sample=args.num_val, is_train=0)
+                        max_sample=args.num_val, is_train=1)
 
     loader_train = torch.utils.data.DataLoader(
         dataset_train,
@@ -409,7 +375,7 @@ def main(args):
     for epoch in range(1, args.num_epoch + 1):
         train(nets, loader_train, optimizers, history, epoch, args)
 
-        # Evaluation and visualization
+        # Evaluation
         if epoch % args.eval_epoch == 0:
             evaluate(nets, loader_val, loader_val_2, history, epoch, args)
 
@@ -450,14 +416,14 @@ if __name__ == '__main__':
                         help='number of gpus to use')
     parser.add_argument('--batch_size_per_gpu', default=6, type=int,
                         help='input batch size')
-    parser.add_argument('--batch_size_per_gpu_eval', default=1, type=int,
+    parser.add_argument('--batch_size_per_gpu_eval', default=3, type=int,
                         help='eval batch size')
     parser.add_argument('--num_epoch', default=3, type=int,
                         help='epochs to train for')
 
     parser.add_argument('--optim', default='SGD', help='optimizer')
-    parser.add_argument('--lr_encoder', default=1e-4, type=float, help='LR')
-    parser.add_argument('--lr_decoder', default=1e-3, type=float, help='LR')
+    parser.add_argument('--lr_encoder', default=1e-3, type=float, help='LR')
+    parser.add_argument('--lr_decoder', default=1e-2, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
     parser.add_argument('--beta1', default=0.9, type=float,
@@ -468,7 +434,7 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=32, type=int,
+    parser.add_argument('--num_val', default=-1, type=int,
                         help='number of images to evaluate')
     parser.add_argument('--num_class', default=19, type=int,
                         help='number of classes')
@@ -481,9 +447,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', default=1337, type=int, help='manual seed')
     parser.add_argument('--ckpt', default='./ckpt',
                         help='folder to output checkpoints')
-    parser.add_argument('--vis', default='./vis',
-                        help='folder to output visualization during training')
-    parser.add_argument('--disp_iter', type=int, default=20,
+    parser.add_argument('--disp_iter', type=int, default=100,
                         help='frequency to display')
     parser.add_argument('--eval_epoch', type=int, default=1,
                         help='frequency to evaluate')
@@ -497,7 +461,7 @@ if __name__ == '__main__':
         print("{:16} {}".format(key, val))
 
     args.batch_size = args.num_gpus * args.batch_size_per_gpu
-    args.batch_size_eval = args.batch_size_per_gpu_eval
+    args.batch_size_eval = args.num_gpus * args.batch_size_per_gpu_eval
 
     # Specify certain arguments
     if args.weighted_class:
@@ -517,11 +481,8 @@ if __name__ == '__main__':
     print('Model ID: {}'.format(args.id))
 
     args.ckpt = os.path.join(args.ckpt, args.id)
-    args.vis = os.path.join(args.vis, args.id)
     if not os.path.isdir(args.ckpt):
         os.makedirs(args.ckpt)
-    if not os.path.exists(args.vis):
-        os.makedirs(args.vis)
 
     args.best_err = 2.e10  # initialize with a big number
     args.best_acc = 0

@@ -105,23 +105,27 @@ class GTA(torchdata.Dataset):
         img_extended = np.concatenate([img,c_y_index,c_x_index],2).copy()
         return img_extended
     
-    def _scale_and_crop(self, img, seg, cropSize, is_train):
+    def _scale(self, img, seg):
         h_s, w_s = 720, 1312
         img_scale = imresize(img, (h_s, w_s), interp='bilinear')
         seg = (seg + 1).astype(np.uint8)
         seg_scale = imresize(seg, (h_s, w_s), interp='nearest')
         seg_scale = seg_scale.astype(np.int) - 1
 
+        return img_scale, seg_scale
+        
+    def _crop(self, img, seg, cropSize, is_train):
+        h_s, w_s = 720, 1312
         if is_train:
             # random crop
             x1 = random.randint(0, w_s - cropSize)
             y1 = random.randint(0, h_s - cropSize)
-            img_crop = img_scale[y1: y1 + cropSize, x1: x1 + cropSize, :]
-            seg_crop = seg_scale[y1: y1 + cropSize, x1: x1 + cropSize]
+            img_crop = img[y1: y1 + cropSize, x1: x1 + cropSize, :]
+            seg_crop = seg[y1: y1 + cropSize, x1: x1 + cropSize]
         else:
             # no crop
-            img_crop = img_scale
-            seg_crop = seg_scale
+            img_crop = img
+            seg_crop = seg
 
         return img_crop, seg_crop
 
@@ -141,12 +145,14 @@ class GTA(torchdata.Dataset):
             seg_copy[seg == k] = v
         seg = seg_copy
         
-        # random scale, crop
-        img, seg = self._scale_and_crop(img, seg,
-                                        self.cropSize, self.is_train)
+        # scale
+        img, seg = self._scale(img, seg)
         
         # add spatial features
         img = self._add_xy_index_channels(img)
+        
+        # random crop
+        img, seg = self._crop(img, seg,self.cropSize, self.is_train)
         
         # random flip
         if self.is_train and random.choice([-1, 1]) > 0:
@@ -200,23 +206,27 @@ class CityScapes(torchdata.Dataset):
         img_extended = np.concatenate([img,c_y_index,c_x_index],2).copy()
         return img_extended
     
-    def _scale_and_crop(self, img, seg, cropSize, is_train):
+    def _scale(self, img, seg):
         h_s, w_s = 720, 1440
         img_scale = imresize(img, (h_s, w_s), interp='bilinear')
         seg = (seg + 1).astype(np.uint8)
         seg_scale = imresize(seg, (h_s, w_s), interp='nearest')
         seg_scale = seg_scale.astype(np.int) - 1
 
+        return img_scale, seg_scale
+        
+    def _crop(self, img, seg, cropSize, is_train):
+        h_s, w_s = 720, 1440
         if is_train:
             # random crop
             x1 = random.randint(0, w_s - cropSize)
             y1 = random.randint(0, h_s - cropSize)
-            img_crop = img_scale[y1: y1 + cropSize, x1: x1 + cropSize, :]
-            seg_crop = seg_scale[y1: y1 + cropSize, x1: x1 + cropSize]
+            img_crop = img[y1: y1 + cropSize, x1: x1 + cropSize, :]
+            seg_crop = seg[y1: y1 + cropSize, x1: x1 + cropSize]
         else:
             # no crop
-            img_crop = img_scale
-            seg_crop = seg_scale
+            img_crop = img
+            seg_crop = seg
 
         return img_crop, seg_crop
 
@@ -236,12 +246,14 @@ class CityScapes(torchdata.Dataset):
             seg_copy[seg == k] = v
         seg = seg_copy
 
-        # random scale, crop
-        img, seg = self._scale_and_crop(img, seg,
-                                        self.cropSize, self.is_train)
+        # scale
+        img, seg = self._scale(img, seg)
         
         # add spatial features
         img = self._add_xy_index_channels(img)
+        
+        # random crop
+        img, seg = self._crop(img, seg,self.cropSize, self.is_train)
         
         # random flip
         if self.is_train and random.choice([-1, 1]) > 0:
@@ -290,27 +302,27 @@ class BDD(torchdata.Dataset):
         img_extended = np.concatenate([img,c_y_index,c_x_index],2).copy()
         return img_extended
     
-    def _scale_and_crop(self, img, seg, cropSize, is_train):
+    def _scale(self, img, seg):
         h_s, w_s = 720, 1280
-        if img.shape[0] == h_s and img.shape[1] == w_s:
-            img_scale = img
-            seg_scale = seg
-        else:
-            img_scale = imresize(img, (h_s, w_s), interp='bilinear')
-            seg = (seg + 1).astype(np.uint8)
-            seg_scale = imresize(seg, (h_s, w_s), interp='nearest')
-            seg_scale = seg_scale.astype(np.int) - 1
+        img_scale = imresize(img, (h_s, w_s), interp='bilinear')
+        seg = (seg + 1).astype(np.uint8)
+        seg_scale = imresize(seg, (h_s, w_s), interp='nearest')
+        seg_scale = seg_scale.astype(np.int) - 1
 
+        return img_scale, seg_scale
+        
+    def _crop(self, img, seg, cropSize, is_train):
+        h_s, w_s = 720, 1280
         if is_train:
             # random crop
             x1 = random.randint(0, w_s - cropSize)
             y1 = random.randint(0, h_s - cropSize)
-            img_crop = img_scale[y1: y1 + cropSize, x1: x1 + cropSize, :]
-            seg_crop = seg_scale[y1: y1 + cropSize, x1: x1 + cropSize]
+            img_crop = img[y1: y1 + cropSize, x1: x1 + cropSize, :]
+            seg_crop = seg[y1: y1 + cropSize, x1: x1 + cropSize]
         else:
             # no crop
-            img_crop = img_scale
-            seg_crop = seg_scale
+            img_crop = img
+            seg_crop = seg
 
         return img_crop, seg_crop
 
@@ -345,13 +357,14 @@ class BDD(torchdata.Dataset):
             seg_copy[seg == k] = v
         seg = seg_copy
         
-        
-        # random scale, crop
-        img, seg = self._scale_and_crop(img, seg,
-                                        self.cropSize, self.is_train)
+        # scale
+        img, seg = self._scale(img, seg)
         
         # add spatial features
         img = self._add_xy_index_channels(img)
+        
+        # random crop
+        img, seg = self._crop(img, seg,self.cropSize, self.is_train)
         
         # random flip
         if self.is_train and random.choice([-1, 1]) > 0:

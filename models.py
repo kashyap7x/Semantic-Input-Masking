@@ -132,15 +132,23 @@ class PPMDecoder(nn.Module):
 
 
 class SpatialRefine(nn.Module):
-    def __init__(self, num_class=19, use_softmax=True):
+    def __init__(self, num_class=19, xy_only=True, use_softmax=True):
         super(SpatialRefine, self).__init__()
+        self.xy_only = xy_only
         self.use_softmax = use_softmax
 
         # last conv
-        self.conv_last = nn.Conv2d(num_class+2, num_class, 1, 1, 0)
+        if xy_only:
+            self.conv_last = nn.Conv2d(2, num_class, 1, 1, 0)
+        else:
+            self.conv_last = nn.Conv2d(num_class+2, num_class, 1, 1, 0)
 
-    def forward(self, x):
-        x = self.conv_last(x)
+    def forward(self, pred, prior):
+        if self.xy_only:
+            x = prior
+        else:
+            x = torch.cat([pred,prior],1)
+        x = pred + self.conv_last(x)
 
         if self.use_softmax:
             x = nn.functional.log_softmax(x, dim=1)
