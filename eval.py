@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 
 def forward_with_loss(nets, batch_data, is_train=True):
-    (net_encoder, net_decoder, crit) = nets
+    (net_encoder, net_decoder_1, net_decoder_2, crit) = nets
     (imgs, segs, infos) = batch_data
 
     # feed input data
@@ -39,11 +39,13 @@ def forward_with_loss(nets, batch_data, is_train=True):
     label_seg = label_seg.cuda()
 
     # forward
-    pred_featuremap = net_decoder(net_encoder(input_img))
-
-    err = crit(pred_featuremap, label_seg)
-
-    return pred_featuremap, err
+    conv_feat = net_encoder(input_img[:,:3,:,:])
+    pred_featuremap_1 = net_decoder_1(conv_feat)
+    pred_featuremap_2 = net_decoder_2(pred_featuremap_1,input_img[:,3:,:,:])
+    
+    err = crit(pred_featuremap_2, label_seg)
+    
+    return pred_featuremap_2, err
 
 
 def visualize(batch_data, pred, args):
@@ -52,7 +54,7 @@ def visualize(batch_data, pred, args):
     for j in range(len(infos)):
         # get/recover image
         # img = imread(os.path.join(args.root_img, infos[j]))
-        img = imgs[j].clone()
+        img = imgs[j,:3,:,:].clone()
         for t, m, s in zip(img,
                            [0.485, 0.456, 0.406],
                            [0.229, 0.224, 0.225]):
@@ -92,7 +94,6 @@ def evaluate(nets, loader, loader_2, history, epoch, args, isVis=True):
 
     for i, batch_data in enumerate(loader):
         # forward pass
-        torch.cuda.empty_cache()
         pred, err = forward_with_loss(nets, batch_data, is_train=False)
         loss_meter.update(err.data.item())
         print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
@@ -112,7 +113,6 @@ def evaluate(nets, loader, loader_2, history, epoch, args, isVis=True):
 
     for i, batch_data in enumerate(loader_2):
         # forward pass
-        torch.cuda.empty_cache()
         pred, err = forward_with_loss(nets, batch_data, is_train=False)
         loss_meter_2.update(err.data.item())
         print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
@@ -160,18 +160,17 @@ def main(args):
     # Network Builders
     builder = ModelBuilder()
     net_encoder = builder.build_encoder(weights=args.weights_encoder)
-    net_decoder = builder.build_decoder(weights=args.weights_decoder)
-
+    net_decoder_1 = builder.build_decoder(weights=args.weights_decoder_1)
+    net_decoder_2 = builder.build_decoder(arch='c1',weights=args.weights_decoder_2)
+    
     if args.weighted_class:
         crit = nn.NLLLoss(ignore_index=-1, weight=args.class_weight)
     else:
         crit = nn.NLLLoss(ignore_index=-1)
-    
+        
     # Dataset and Loader
-    dataset_val = CityScapes('val', root=args.root_cityscapes, cropSize=args.imgSize,
-                             max_sample=args.num_val, is_train=0)
-    dataset_val_2 = BDD('val', root=args.root_bdd, cropSize=args.imgSize,
-                        max_sample=args.num_val, is_train=0)
+    dataset_val = CityScapes('val', root=args.root_cityscapes, max_sample=args.num_val, is_train=0)
+    dataset_val_2 = BDD('val', root=args.root_bdd, max_sample=args.num_val, is_train=0)
 
     loader_val = torch.utils.data.DataLoader(
         dataset_val,
@@ -191,10 +190,12 @@ def main(args):
     if args.num_gpus > 1:
         net_encoder = nn.DataParallel(net_encoder,
                                       device_ids=range(args.num_gpus))
-        net_decoder = nn.DataParallel(net_decoder,
+        net_decoder_1 = nn.DataParallel(net_decoder_1,
+                                        device_ids=range(args.num_gpus))
+        net_decoder_2 = nn.DataParallel(net_decoder_2,
                                         device_ids=range(args.num_gpus))
 
-    nets = (net_encoder, net_decoder, crit)
+    nets = (net_encoder, net_decoder_1, net_decoder_2, crit)
     for net in nets:
         net.cuda()
 
@@ -212,7 +213,7 @@ if __name__ == '__main__':
     # Model related arguments
     parser.add_argument('--id', default='baseline',
                         help="a name for identifying the experiment")
-    parser.add_argument('--suffix', default='_best_mIoU.pth',
+    parser.add_argument('--suffix', default='_latest.pth',
                         help="which snapshot to load")
 
     # Path related arguments
@@ -238,27 +239,38 @@ if __name__ == '__main__':
     # Misc arguments
     parser.add_argument('--seed', default=1337, type=int, help='manual seed')
     # Specify visualization directory
-    parser.add_argument('--ckpt', default='./ckpt/ResNet',
+    parser.add_argument('--ckpt', default='./ckpt',
                         help='folder to output checkpoints')
     parser.add_argument('--vis', default='./vis',
                         help='folder to output visualization during training')
-
+    
+    parser.add_argument('--weighted_class', default=True, type=bool, help='set True to use weighted loss')
+        
     args = parser.parse_args()
     print("Input arguments:")
     for key, val in vars(args).items():
         print("{:16} {}".format(key, val))
 
-    args.batch_size_eval = args.batch_size_per_gpu_eval
+    if args.weighted_class:
+        args.enhanced_weight = 2.0
+        args.class_weight = np.ones([19], dtype=np.float32)
+        enhance_class = [1, 3, 4, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18]
+        args.class_weight[enhance_class] = args.enhanced_weight
+        args.class_weight = torch.from_numpy(args.class_weight.astype(np.float32))
+        
+    args.batch_size_eval = args.num_gpus * args.batch_size_per_gpu_eval
 
-    model_id = 'baseline-ngpus3-batchSize18-imgSize720-lr_encoder0.001-lr_decoder0.01-epoch20-decay0.0001-beta0.1-weighted2.0[1, 3, 4, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18]'
+    model_id = 'spatialrefine_xy-ngpus3-batchSize18-imgSize720-lr_encoder0.0001-lr_decoder0.001-epoch3'
 
     print(args)
 
     args.weights_encoder = os.path.join(args.ckpt, model_id,
                                         'encoder' + args.suffix)
-    args.weights_decoder = os.path.join(args.ckpt, model_id,
-                                          'decoder' + args.suffix)
-    
+    args.weights_decoder_1 = os.path.join(args.ckpt, model_id,
+                                          'decoder_1' + args.suffix)
+    args.weights_decoder_2 = os.path.join(args.ckpt, model_id,
+                                          'decoder_2' + args.suffix)
+                                          
     args.vis = os.path.join(args.vis, args.id, model_id)
     
     if not os.path.exists(args.vis):

@@ -63,7 +63,6 @@ def train(nets, loader, optimizers, history, epoch, args):
     # main loop
     tic = time.time()
     for i, batch_data in enumerate(loader):
-
         data_time.update(time.time() - tic)
         for net in nets:
             net.zero_grad()
@@ -117,10 +116,10 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
 
     for i, batch_data in enumerate(loader):
         # forward pass
-        torch.cuda.empty_cache()
         pred, err = forward_with_loss(nets, batch_data, is_train=False)
         loss_meter.update(err.data.item())
-        print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
+        if i % args.disp_iter == 0:
+            print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
 
         # calculate accuracy
         acc, pix = accuracy(batch_data, pred)
@@ -146,10 +145,10 @@ def evaluate(nets, loader, loader_2, history, epoch, args):
 
     for i, batch_data in enumerate(loader_2):
         # forward pass
-        torch.cuda.empty_cache()
         pred, err = forward_with_loss(nets, batch_data, is_train=False)
         loss_meter_2.update(err.data.item())
-        print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
+        if i % args.disp_iter == 0:        
+            print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
 
         # calculate accuracy
         acc, pix = accuracy(batch_data, pred)
@@ -391,7 +390,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Model related arguments
-    parser.add_argument('--id', default='spatialrefine',
+    parser.add_argument('--id', default='spatialrefine_xy',
                         help="a name for identifying the experiment")
     parser.add_argument('--weights_encoder',
                         default='/home/selfdriving/kchitta/Style-Randomization/pretrained/encoder_GTA.pth',
@@ -416,14 +415,14 @@ if __name__ == '__main__':
                         help='number of gpus to use')
     parser.add_argument('--batch_size_per_gpu', default=6, type=int,
                         help='input batch size')
-    parser.add_argument('--batch_size_per_gpu_eval', default=3, type=int,
+    parser.add_argument('--batch_size_per_gpu_eval', default=1, type=int,
                         help='eval batch size')
     parser.add_argument('--num_epoch', default=3, type=int,
                         help='epochs to train for')
 
     parser.add_argument('--optim', default='SGD', help='optimizer')
-    parser.add_argument('--lr_encoder', default=1e-3, type=float, help='LR')
-    parser.add_argument('--lr_decoder', default=1e-2, type=float, help='LR')
+    parser.add_argument('--lr_encoder', default=1e-4, type=float, help='LR')
+    parser.add_argument('--lr_decoder', default=1e-3, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
     parser.add_argument('--beta1', default=0.9, type=float,
@@ -434,7 +433,7 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=-1, type=int,
+    parser.add_argument('--num_val', default=300, type=int,
                         help='number of images to evaluate')
     parser.add_argument('--num_class', default=19, type=int,
                         help='number of classes')
