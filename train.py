@@ -322,11 +322,12 @@ def main(args):
         crit = nn.NLLLoss(ignore_index=-1)
     
     # Dataset and Loader
-    dataset_train = GTA(root=args.root_gta, cropSize=args.imgSize, is_train=1)
+    dataset_train = GTA(root=args.root_gta, cropSize=args.imgSize, 
+                        is_train=1, random_mask=args.mask)
     dataset_val = CityScapes('val', root=args.root_cityscapes, cropSize=args.imgSize,
-                             max_sample=args.num_val, is_train=1)
+                             max_sample=args.num_val, is_train=0)
     dataset_val_2 = BDD('val', root=args.root_bdd, cropSize=args.imgSize,
-                        max_sample=args.num_val, is_train=1)
+                        max_sample=args.num_val, is_train=0)
 
     loader_train = torch.utils.data.DataLoader(
         dataset_train,
@@ -370,7 +371,7 @@ def main(args):
                for split in ('train', 'val', 'val_2')}
 
     # optional initial eval
-    evaluate(nets, loader_val, loader_val_2, history, 0, args)
+    # evaluate(nets, loader_val, loader_val_2, history, 0, args)
     for epoch in range(1, args.num_epoch + 1):
         train(nets, loader_train, optimizers, history, epoch, args)
 
@@ -390,7 +391,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Model related arguments
-    parser.add_argument('--id', default='spatialrefine_xy',
+    parser.add_argument('--id', default='mask_xy',
                         help="a name for identifying the experiment")
     parser.add_argument('--weights_encoder',
                         default='/home/selfdriving/kchitta/Style-Randomization/pretrained/encoder_GTA.pth',
@@ -433,7 +434,7 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=300, type=int,
+    parser.add_argument('--num_val', default=-1, type=int,
                         help='number of images to evaluate')
     parser.add_argument('--num_class', default=19, type=int,
                         help='number of classes')
@@ -452,8 +453,11 @@ if __name__ == '__main__':
                         help='frequency to evaluate')
 
     # Mode select
-    parser.add_argument('--weighted_class', default=True, type=bool, help='set True to use weighted loss')
-
+    parser.add_argument('--weighted_class', default=True, type=bool, 
+                        help='set True to use weighted loss')
+    parser.add_argument('--mask_prob', default=0.05, type=float,
+                        help='probability for semantic input masking')
+    
     args = parser.parse_args()
     print("Input arguments:")
     for key, val in vars(args).items():
@@ -461,21 +465,26 @@ if __name__ == '__main__':
 
     args.batch_size = args.num_gpus * args.batch_size_per_gpu
     args.batch_size_eval = args.num_gpus * args.batch_size_per_gpu_eval
-
+    
+    enhance_class = [1, 3, 4, 5, 6, 7, 9, 11, 12, 13, 14, 15, 16, 17, 18]
     # Specify certain arguments
     if args.weighted_class:
         args.enhanced_weight = 2.0
         args.class_weight = np.ones([19], dtype=np.float32)
-        enhance_class = [1, 3, 4, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18]
         args.class_weight[enhance_class] = args.enhanced_weight
         args.class_weight = torch.from_numpy(args.class_weight.astype(np.float32))
-
+    
+    args.mask = np.zeros([19, 3], dtype=np.float32)
+    args.mask[enhance_class, 1] = args.mask_prob
+    args.mask[:, 2] = 1 - args.mask[:, 1]
+        
     args.id += '-ngpus' + str(args.num_gpus)
     args.id += '-batchSize' + str(args.batch_size)
     args.id += '-imgSize' + str(args.imgSize)
     args.id += '-lr_encoder' + str(args.lr_encoder)
     args.id += '-lr_decoder' + str(args.lr_decoder)
     args.id += '-epoch' + str(args.num_epoch)
+    args.id += '-mask' + str(args.mask_prob)
 
     print('Model ID: {}'.format(args.id))
 

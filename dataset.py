@@ -74,11 +74,12 @@ def make_BDD(mode, root):
 
 
 class GTA(torchdata.Dataset):
-    def __init__(self, root, cropSize=720, ignore_label=-1, max_sample=-1, is_train=1):
+    def __init__(self, root, cropSize=720, ignore_label=-1, max_sample=-1, is_train=1, random_mask=None):
         self.list_sample = make_GTA(root)
         self.is_train = is_train
         self.cropSize = cropSize
         self.ignore_label = ignore_label
+        self.random_mask = random_mask
         self.img_transform = transforms.Compose([
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])])
@@ -148,6 +149,20 @@ class GTA(torchdata.Dataset):
         # scale
         img, seg = self._scale(img, seg)
         
+        # random masking
+        if self.random_mask is not None:
+            for i in range(self.random_mask.shape[0]):
+                choice = np.random.choice(range(self.random_mask.shape[1]),
+                                            p=self.random_mask[i, :])
+                if choice == 0:
+                    # zero masking
+                    img[seg==i, :] = 0
+                elif choice == 1:
+                    # random color masking
+                    color = np.random.randint(low=0, high=256, size=3)
+                    for j in range(3):
+                        img[seg==i, j] = color[j]
+                    
         # add spatial features
         img = self._add_xy_index_channels(img)
         
