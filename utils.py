@@ -131,7 +131,16 @@ def intersectionAndUnion(batch_data, pred, numClass):
 
 
 def make_variable(tensor, volatile=False):
-    """Convert Tensor to Variable."""
+    """
+    Convert Tensor to Variable.
+    """
     if torch.cuda.is_available():
         tensor = tensor.cuda()
     return Variable(tensor, volatile=volatile)
+    
+    
+def similiarityPenalty(F1, F2):
+    """
+    Calculate similiarity penalty |W_1^T W_2|.
+    """
+    return torch.sum(torch.abs(torch.mm(F1.transpose(0, 1), F2)))

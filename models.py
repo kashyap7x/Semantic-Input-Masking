@@ -129,6 +129,9 @@ class PPMDecoder(nn.Module):
             x = nn.functional.log_softmax(x, dim=1)
 
         return x
+        
+    def get_weights(self):
+        return self.conv_final[-1].weight
 
 
 class SpatialRefine(nn.Module):

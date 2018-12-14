@@ -41,11 +41,11 @@ def forward_with_loss(nets, batch_data, is_train=True):
     # forward
     conv_feat = net_encoder(input_img[:,:3,:,:])
     pred_featuremap_1 = net_decoder_1(conv_feat)
-    pred_featuremap_2 = net_decoder_2(pred_featuremap_1,input_img[:,3:,:,:])
+    #pred_featuremap_2 = net_decoder_2(pred_featuremap_1,input_img[:,3:,:,:])
     
-    err = crit(pred_featuremap_2, label_seg)
+    err = crit(pred_featuremap_1, label_seg)
     
-    return pred_featuremap_2, err
+    return pred_featuremap_1, err
 
 
 def visualize(batch_data, pred, args):
@@ -213,8 +213,6 @@ if __name__ == '__main__':
     # Model related arguments
     parser.add_argument('--id', default='baseline',
                         help="a name for identifying the experiment")
-    parser.add_argument('--suffix', default='_latest.pth',
-                        help="which snapshot to load")
 
     # Path related arguments
     parser.add_argument('--root_cityscapes',
@@ -239,10 +237,8 @@ if __name__ == '__main__':
     # Misc arguments
     parser.add_argument('--seed', default=1337, type=int, help='manual seed')
     # Specify visualization directory
-    parser.add_argument('--ckpt', default='./ckpt',
-                        help='folder to output checkpoints')
     parser.add_argument('--vis', default='./vis',
-                        help='folder to output visualization during training')
+                        help='folder to output visualization')
     
     parser.add_argument('--weighted_class', default=True, type=bool, help='set True to use weighted loss')
         
@@ -251,27 +247,21 @@ if __name__ == '__main__':
     for key, val in vars(args).items():
         print("{:16} {}".format(key, val))
 
+    enhance_class = [1, 3, 4, 5, 6, 7, 9, 11, 12, 13, 14, 15, 16, 17, 18]
+    # Specify certain arguments
     if args.weighted_class:
         args.enhanced_weight = 2.0
         args.class_weight = np.ones([19], dtype=np.float32)
-        enhance_class = [1, 3, 4, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18]
         args.class_weight[enhance_class] = args.enhanced_weight
         args.class_weight = torch.from_numpy(args.class_weight.astype(np.float32))
         
     args.batch_size_eval = args.num_gpus * args.batch_size_per_gpu_eval
 
-    model_id = 'spatialrefine_xy-ngpus3-batchSize18-imgSize720-lr_encoder0.0001-lr_decoder0.001-epoch3'
-
-    print(args)
-
-    args.weights_encoder = os.path.join(args.ckpt, model_id,
-                                        'encoder' + args.suffix)
-    args.weights_decoder_1 = os.path.join(args.ckpt, model_id,
-                                          'decoder_1' + args.suffix)
-    args.weights_decoder_2 = os.path.join(args.ckpt, model_id,
-                                          'decoder_2' + args.suffix)
+    args.weights_encoder = ('encoder_' + args.id + '.pth')
+    args.weights_decoder_1 = ('decoder_1_' + args.id + '.pth')
+    args.weights_decoder_2 = ''
                                           
-    args.vis = os.path.join(args.vis, args.id, model_id)
+    args.vis = os.path.join(args.vis, args.id)
     
     if not os.path.exists(args.vis):
         os.makedirs(args.vis)
