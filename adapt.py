@@ -66,7 +66,7 @@ def forward_with_loss(nets, batch_data, use_seg_label=True):
 
 
 # train one epoch
-def train(nets, datasets_sup, loader_unsup, optimizers, history, epoch, args):
+def train(nets, datasets_sup, datasets_unsup, optimizers, history, epoch, args):
     batch_time = AverageMeter()
     data_time = AverageMeter()
 
@@ -76,42 +76,10 @@ def train(nets, datasets_sup, loader_unsup, optimizers, history, epoch, args):
             net.train()
         else:
             net.eval()
-
-    # main unsupervised loop
-    tic = time.time()
-    for i, batch_data in enumerate(loader_unsup):
-        data_time.update(time.time() - tic)
-        for net in nets:
-            net.zero_grad()
-
-        # forward pass
-        pred, err, err_ce, err_sim = forward_with_loss(nets, batch_data, use_seg_label=False)
-
-        # Backward
-        err.backward()
-
-        for optimizer in optimizers:
-            optimizer.step()
-
-        # measure elapsed time
-        batch_time.update(time.time() - tic)
-        tic = time.time()
-
-        # calculate accuracy, and display
-        if i % args.disp_iter == 0:
-            acc, _ = accuracy(batch_data, pred)
-
-            print('Epoch: [{}][{}/{}][Sup], Time: {:.2f}, Data: {:.2f}, '
-                    'lr_encoder: {}, lr_decoder: {}, '
-                    'Accuracy: {:4.2f}%, Loss: {:.4f}, CE_Loss: {:.4f}, Sim_Loss: {:.4f}, '
-                    .format(epoch, i, args.epoch_iters,
-                            batch_time.average(), data_time.average(),
-                            args.lr_encoder, args.lr_decoder,
-                            acc * 100, err.data.item(), err_ce.data.item(), err_sim.data.item()))
             
     # main supervised loop
     loader_sup = torch.utils.data.DataLoader(
-        datasets_sup[epoch//args.gamma],
+        datasets_sup[epoch//args.gamma1],
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=int(args.workers),
@@ -119,7 +87,6 @@ def train(nets, datasets_sup, loader_unsup, optimizers, history, epoch, args):
         
     tic = time.time()
     for i, batch_data in enumerate(loader_sup):
-        i += len(loader_unsup)
         data_time.update(time.time() - tic)
         for net in nets:
             net.zero_grad()
@@ -154,6 +121,46 @@ def train(nets, datasets_sup, loader_unsup, optimizers, history, epoch, args):
             history['train']['epoch'].append(fractional_epoch)
             history['train']['err'].append(err.data.item())
             history['train']['acc'].append(acc)
+            
+    # main unsupervised loop
+    loader_unsup = torch.utils.data.DataLoader(
+        datasets_unsup[epoch//args.gamma2],
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=int(args.workers),
+        drop_last=True)
+        
+    tic = time.time()
+    for i, batch_data in enumerate(loader_unsup):
+        i += len(loader_sup)
+        data_time.update(time.time() - tic)
+        for net in nets:
+            net.zero_grad()
+
+        # forward pass
+        pred, err, err_ce, err_sim = forward_with_loss(nets, batch_data, use_seg_label=False)
+
+        # Backward
+        err.backward()
+
+        for optimizer in optimizers:
+            optimizer.step()
+
+        # measure elapsed time
+        batch_time.update(time.time() - tic)
+        tic = time.time()
+
+        # calculate accuracy, and display
+        if i % args.disp_iter == 0:
+            acc, _ = accuracy(batch_data, pred)
+
+            print('Epoch: [{}][{}/{}][Unsup], Time: {:.2f}, Data: {:.2f}, '
+                    'lr_encoder: {}, lr_decoder: {}, '
+                    'Accuracy: {:4.2f}%, Loss: {:.4f}, CE_Loss: {:.4f}, Sim_Loss: {:.4f}, '
+                    .format(epoch, i, args.epoch_iters,
+                            batch_time.average(), data_time.average(),
+                            args.lr_encoder, args.lr_decoder,
+                            acc * 100, err.data.item(), err_ce.data.item(), err_sim.data.item()))
 
             
 def evaluate(nets, loader, history, epoch, args):
@@ -336,28 +343,26 @@ def main(args):
     net_decoder_2 = builder.build_decoder(weights=args.weights_decoder_2, use_softmax=True)
     
     if args.weighted_class:
-        crit1 = nn.NLLLoss(ignore_index=-1, weight=args.class_weight)
+        crit1 = nn.CrossEntropyLoss(ignore_index=-1, weight=args.class_weight)
     else:
-        crit1 = nn.NLLLoss(ignore_index=-1)
+        crit1 = nn.CrossEntropyLoss(ignore_index=-1)
 
-    # Dataset and Loader
-    dataset_train_unsup = CityScapes('train', root=args.root_cityscapes, cropSize=args.imgSize,
-                             max_sample=-1, is_train=1)
+    # Dataset and Loader    
     dataset_train_sup = GTA(root=args.root_gta, cropSize=args.imgSize,
                              max_sample=-1, is_train=1, random_mask=args.mask)
-    split_lengths = [len(dataset_train_sup)//args.gamma] * args.gamma
-    split_lengths[0] += len(dataset_train_sup)%args.gamma
+    split_lengths = [len(dataset_train_sup)//args.gamma1] * args.gamma1
+    split_lengths[0] += len(dataset_train_sup)%args.gamma1
     split_dataset_train_sup = torch.utils.data.random_split(dataset_train_sup,split_lengths)
-                              
+    
+    dataset_train_unsup = CityScapes('train', root=args.root_cityscapes, cropSize=args.imgSize,
+                             max_sample=-1, is_train=1)
+    split_lengths = [len(dataset_train_unsup)//args.gamma2] * args.gamma2
+    split_lengths[0] += len(dataset_train_unsup)%args.gamma2
+    split_dataset_train_unsup = torch.utils.data.random_split(dataset_train_unsup,split_lengths)
+                                                       
     dataset_val = CityScapes('val', root=args.root_cityscapes, cropSize=args.imgSize,
                              max_sample=args.num_val, is_train=0)
 
-    loader_train_unsup = torch.utils.data.DataLoader(
-        dataset_train_unsup,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=int(args.workers),
-        drop_last=True)
     loader_val = torch.utils.data.DataLoader(
         dataset_val,
         batch_size=args.batch_size_eval,
@@ -365,7 +370,7 @@ def main(args):
         num_workers=int(args.workers),
         drop_last=True)
 
-    args.epoch_iters = int((len(dataset_train_sup)//args.gamma + len(dataset_train_unsup)) / args.batch_size)
+    args.epoch_iters = int((len(dataset_train_sup)//args.gamma1 + len(dataset_train_unsup)//args.gamma2) / args.batch_size)
     print('1 Epoch = {} iters'.format(args.epoch_iters))
 
     # load nets into gpu
@@ -391,7 +396,7 @@ def main(args):
     # optional initial eval
     # evaluate(nets, loader_val, history, 0, args)
     for epoch in range(1, args.num_epoch + 1):
-        train(nets, split_dataset_train_sup, loader_train_unsup, optimizers, history, epoch, args)
+        train(nets, split_dataset_train_sup, split_dataset_train_unsup, optimizers, history, epoch, args)
 
         # Evaluation and visualization
         if epoch % args.eval_epoch == 0:
@@ -436,7 +441,7 @@ if __name__ == '__main__':
                         help='input batch size')
     parser.add_argument('--batch_size_per_gpu_eval', default=1, type=int,
                         help='eval batch size')
-    parser.add_argument('--num_epoch', default=20, type=int,
+    parser.add_argument('--num_epoch', default=100, type=int,
                         help='epochs to train for')
 
     parser.add_argument('--optim', default='SGD', help='optimizer')
@@ -444,11 +449,13 @@ if __name__ == '__main__':
     parser.add_argument('--lr_decoder', default=1e-2, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
-    parser.add_argument('--gamma', default=10, type=float,
+    parser.add_argument('--gamma1', default=20, type=float,
                         help='number of partitions of supervised dataset')
+    parser.add_argument('--gamma2', default=5, type=float,
+                        help='number of partitions of unsupervised dataset')
     parser.add_argument('--beta', default=1, type=float,
                         help='relative weight of the supervised loss')
-    parser.add_argument('--alpha', default=0.0001, type=float,
+    parser.add_argument('--alpha', default=0.01, type=float,
                         help='relative weight of the similarity penalty')
     parser.add_argument('--beta1', default=0.9, type=float,
                         help='momentum for sgd, beta1 for adam')
@@ -458,7 +465,7 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=-1, type=int,
+    parser.add_argument('--num_val', default=50, type=int,
                         help='number of images to evaluate')
     parser.add_argument('--num_class', default=19, type=int,
                         help='number of classes')
@@ -472,7 +479,7 @@ if __name__ == '__main__':
                         help='manual seed')
     parser.add_argument('--ckpt', default='./ckpt',
                         help='folder to output checkpoints')
-    parser.add_argument('--disp_iter', type=int, default=50,
+    parser.add_argument('--disp_iter', type=int, default=20,
                         help='frequency to display')
     parser.add_argument('--eval_epoch', type=int, default=1,
                         help='frequency to evaluate')
@@ -513,7 +520,7 @@ if __name__ == '__main__':
     args.id += '-decay' + str(args.weight_decay)
     args.id += '-alpha' + str(args.alpha)
     args.id += '-beta' + str(args.beta)
-    args.id += '-gamma' + str(args.gamma)
+    args.id += '-gamma' + str(args.gamma1) + '-' + str(args.gamma2)
     
     print('Model ID: {}'.format(args.id))
 

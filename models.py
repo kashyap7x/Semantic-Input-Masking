@@ -126,7 +126,7 @@ class PPMDecoder(nn.Module):
         x = nn.functional.upsample(x, size=(input_size[2]*8, input_size[3]*8), mode='bilinear')
 
         if self.use_softmax:
-            x = nn.functional.log_softmax(x, dim=1)
+            x = nn.functional.softmax(x, dim=1)
 
         return x
         
@@ -150,9 +150,9 @@ class SpatialRefine(nn.Module):
             x = prior
         else:
             x = torch.cat([pred,prior],1)
-        x = pred + nn.functional.log_softmax(self.conv_last(x), dim=1)
+        x = pred + nn.functional.softmax(self.conv_last(x), dim=1)
 
-        x = nn.functional.log_softmax(x, dim=1)
+        x = nn.functional.softmax(x, dim=1)
 
         return x
 
