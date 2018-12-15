@@ -31,30 +31,32 @@ def forward_with_loss(nets, batch_data, use_seg_label=True):
     pred_featuremap_1 = net_decoder_1(featuremap)
     pred_featuremap_2 = net_decoder_2(featuremap)
     pred_featuremap_syn = pred_featuremap_1 + pred_featuremap_2
-        
+    
+    _, pred_1 = torch.max(pred_featuremap_1, 1)
+    _, pred_2 = torch.max(pred_featuremap_2, 1)
+    _, pred_syn = torch.max(pred_featuremap_syn, 1)
+    
+    # reshape the predictions to class_num * (batch_size * h * w)
+    pred_1 = pred_1.view(1, -1)
+    pred_2 = pred_2.view(1, -1)
+    pred_syn = pred_syn.view(1, -1)
+
+    adapt_idx = (torch.eq(pred_1, pred_2)).squeeze()
+    ignored_idx = (adapt_idx == 0).nonzero().squeeze()
+
+    agree_ratio = float(torch.sum(adapt_idx))/(pred_featuremap_syn.size(0)*pred_featuremap_syn.size(2)*pred_featuremap_syn.size(3))
+    
     # loss
     if use_seg_label: # supervised training
         segs = segs.cuda()
         err_ce = crit1(pred_featuremap_1, segs) + crit1(pred_featuremap_2, segs)
     else: # unsupervised training
-        _, pred_1 = torch.max(pred_featuremap_1, 1)
-        _, pred_2 = torch.max(pred_featuremap_2, 1)
-        _, pred_syn = torch.max(pred_featuremap_syn, 1)
-        
-        # reshape the predictions to class_num * (batch_size * h * w)
-        pred_1 = pred_1.view(1, -1)
-        pred_2 = pred_2.view(1, -1)
-        pred_syn = pred_syn.view(1, -1)
-
-        adapt_idx = (torch.eq(pred_1, pred_2)).squeeze()
-        ignored_idx = (adapt_idx == 0).nonzero().squeeze()
-
         if len(ignored_idx.size()) > 0:
             pred_syn[..., ignored_idx] = -1
 
         # reshape back to use NLLLoss
         pred_syn = pred_syn.view(pred_featuremap_syn.size(0), pred_featuremap_syn.size(2), pred_featuremap_syn.size(3))
-        err_ce = crit1(pred_featuremap_1, pred_syn) + crit1(pred_featuremap_2, pred_syn)
+        err_ce = args.beta * (crit1(pred_featuremap_1, pred_syn) + crit1(pred_featuremap_2, pred_syn))
     
     weights1 = net_decoder_1.module.get_weights()
     weights2 = net_decoder_2.module.get_weights()
@@ -62,7 +64,7 @@ def forward_with_loss(nets, batch_data, use_seg_label=True):
     err_sim = similiarityPenalty(weights1.squeeze(), weights2.squeeze())
     err = err_ce + args.alpha * err_sim
 
-    return pred_featuremap_syn, err, err_ce, err_sim
+    return pred_featuremap_syn, err, err_ce, agree_ratio
 
 
 # train one epoch
@@ -79,12 +81,12 @@ def train(nets, datasets_sup, datasets_unsup, optimizers, history, epoch, args):
             
     # main supervised loop
     loader_sup = torch.utils.data.DataLoader(
-        datasets_sup[epoch//args.gamma1],
+        datasets_sup[epoch%args.gamma1],
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=int(args.workers),
         drop_last=True)
-        
+    
     tic = time.time()
     for i, batch_data in enumerate(loader_sup):
         data_time.update(time.time() - tic)
@@ -92,8 +94,7 @@ def train(nets, datasets_sup, datasets_unsup, optimizers, history, epoch, args):
             net.zero_grad()
 
         # forward pass
-        pred, err, err_ce, err_sim = forward_with_loss(nets, batch_data, use_seg_label=True)
-        err = args.beta * err
+        pred, err, err_ce, agree_ratio = forward_with_loss(nets, batch_data, use_seg_label=True)
         
         # Backward
         err.backward()
@@ -111,11 +112,11 @@ def train(nets, datasets_sup, datasets_unsup, optimizers, history, epoch, args):
 
             print('Epoch: [{}][{}/{}][Sup], Time: {:.2f}, Data: {:.2f}, '
                 'lr_encoder: {}, lr_decoder: {}, '
-                'Accuracy: {:4.2f}%, Loss: {:.4f}, CE_Loss: {:.4f}, Sim_Loss: {:.4f}, '
+                'Accuracy: {:4.2f}%, Loss: {:.4f}, CE_Loss: {:.4f}, Agree_Ratio: {:.4f}'
                 .format(epoch, i, args.epoch_iters,
                         batch_time.average(), data_time.average(),
                         args.lr_encoder, args.lr_decoder,
-                        acc * 100, err.data.item(), err_ce.data.item(), err_sim.data.item()))
+                        acc * 100, err.data.item(), err_ce.data.item(), agree_ratio))
 
             fractional_epoch = epoch - 1 + 1. * i / args.epoch_iters
             history['train']['epoch'].append(fractional_epoch)
@@ -124,7 +125,7 @@ def train(nets, datasets_sup, datasets_unsup, optimizers, history, epoch, args):
             
     # main unsupervised loop
     loader_unsup = torch.utils.data.DataLoader(
-        datasets_unsup[epoch//args.gamma2],
+        datasets_unsup[epoch%args.gamma2],
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=int(args.workers),
@@ -138,8 +139,8 @@ def train(nets, datasets_sup, datasets_unsup, optimizers, history, epoch, args):
             net.zero_grad()
 
         # forward pass
-        pred, err, err_ce, err_sim = forward_with_loss(nets, batch_data, use_seg_label=False)
-
+        pred, err, err_ce, agree_ratio = forward_with_loss(nets, batch_data, use_seg_label=False)
+        
         # Backward
         err.backward()
 
@@ -156,11 +157,11 @@ def train(nets, datasets_sup, datasets_unsup, optimizers, history, epoch, args):
 
             print('Epoch: [{}][{}/{}][Unsup], Time: {:.2f}, Data: {:.2f}, '
                     'lr_encoder: {}, lr_decoder: {}, '
-                    'Accuracy: {:4.2f}%, Loss: {:.4f}, CE_Loss: {:.4f}, Sim_Loss: {:.4f}, '
+                    'Accuracy: {:4.2f}%, Loss: {:.4f}, CE_Loss: {:.4f}, Agree_Ratio: {:.4f}'
                     .format(epoch, i, args.epoch_iters,
                             batch_time.average(), data_time.average(),
                             args.lr_encoder, args.lr_decoder,
-                            acc * 100, err.data.item(), err_ce.data.item(), err_sim.data.item()))
+                            acc * 100, err.data.item(), err_ce.data.item(), agree_ratio))
 
             
 def evaluate(nets, loader, history, epoch, args):
@@ -176,7 +177,7 @@ def evaluate(nets, loader, history, epoch, args):
 
     for i, batch_data in enumerate(loader):
         # forward pass
-        pred, err, err_ce, err_sim = forward_with_loss(nets, batch_data, use_seg_label=True)
+        pred, err, _, _ = forward_with_loss(nets, batch_data, use_seg_label=True)
         loss_meter.update(err.data.item())
         print('[Eval] iter {}, loss: {}'.format(i, err.data.item()))
 
@@ -353,13 +354,11 @@ def main(args):
     split_lengths = [len(dataset_train_sup)//args.gamma1] * args.gamma1
     split_lengths[0] += len(dataset_train_sup)%args.gamma1
     split_dataset_train_sup = torch.utils.data.random_split(dataset_train_sup,split_lengths)
-    
     dataset_train_unsup = CityScapes('train', root=args.root_cityscapes, cropSize=args.imgSize,
                              max_sample=-1, is_train=1)
     split_lengths = [len(dataset_train_unsup)//args.gamma2] * args.gamma2
     split_lengths[0] += len(dataset_train_unsup)%args.gamma2
-    split_dataset_train_unsup = torch.utils.data.random_split(dataset_train_unsup,split_lengths)
-                                                       
+    split_dataset_train_unsup = torch.utils.data.random_split(dataset_train_unsup,split_lengths)                                                 
     dataset_val = CityScapes('val', root=args.root_cityscapes, cropSize=args.imgSize,
                              max_sample=args.num_val, is_train=0)
 
@@ -402,8 +401,8 @@ def main(args):
         if epoch % args.eval_epoch == 0:
             evaluate(nets, loader_val, history, epoch, args)
 
-        # checkpointing
-        checkpoint(nets, history, args)
+            # checkpointing
+            checkpoint(nets, history, args)
 
         # adjust learning rate
         adjust_learning_rate(optimizers, epoch, args)
@@ -423,7 +422,7 @@ if __name__ == '__main__':
                         default='/home/selfdriving/kchitta/Style-Randomization/pretrained/decoder_1_cityscapes.pth',
                         help="weights to initialize segmentation branch #1")
     parser.add_argument('--weights_decoder_2',
-                        default='',
+                        default='/home/selfdriving/kchitta/Style-Randomization/pretrained/decoder_1_cityscapes.pth',
                         help="weights to initialize segmentation branch #2")
 
     # Path related arguments
@@ -441,7 +440,7 @@ if __name__ == '__main__':
                         help='input batch size')
     parser.add_argument('--batch_size_per_gpu_eval', default=1, type=int,
                         help='eval batch size')
-    parser.add_argument('--num_epoch', default=100, type=int,
+    parser.add_argument('--num_epoch', default=400, type=int,
                         help='epochs to train for')
 
     parser.add_argument('--optim', default='SGD', help='optimizer')
@@ -449,12 +448,12 @@ if __name__ == '__main__':
     parser.add_argument('--lr_decoder', default=1e-2, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
-    parser.add_argument('--gamma1', default=20, type=float,
+    parser.add_argument('--gamma1', default=100, type=float,
                         help='number of partitions of supervised dataset')
-    parser.add_argument('--gamma2', default=5, type=float,
+    parser.add_argument('--gamma2', default=10, type=float,
                         help='number of partitions of unsupervised dataset')
-    parser.add_argument('--beta', default=1, type=float,
-                        help='relative weight of the supervised loss')
+    parser.add_argument('--beta', default=0.01, type=float,
+                        help='relative weight of the unsupervised loss')
     parser.add_argument('--alpha', default=0.01, type=float,
                         help='relative weight of the similarity penalty')
     parser.add_argument('--beta1', default=0.9, type=float,
@@ -479,15 +478,15 @@ if __name__ == '__main__':
                         help='manual seed')
     parser.add_argument('--ckpt', default='./ckpt',
                         help='folder to output checkpoints')
-    parser.add_argument('--disp_iter', type=int, default=20,
+    parser.add_argument('--disp_iter', type=int, default=10,
                         help='frequency to display')
-    parser.add_argument('--eval_epoch', type=int, default=1,
+    parser.add_argument('--eval_epoch', type=int, default=20,
                         help='frequency to evaluate')
 
     # Mode select
     parser.add_argument('--weighted_class', default=True, type=bool, 
                         help='set True to use weighted loss')
-    parser.add_argument('--mask_prob', default=0.25, type=float,
+    parser.add_argument('--mask_prob', default=0.2, type=float,
                         help='probability for semantic input masking')
 
     args = parser.parse_args()
